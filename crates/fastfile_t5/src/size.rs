@@ -710,6 +710,8 @@ pub const WEAPON_DEF_RELOAD_START_ADD_OFF: usize = 0x588;
 pub const WEAPON_DEF_MIN_DAMAGE_OFF: usize = 0x7a0;
 pub const WEAPON_DEF_MAX_DAMAGE_RANGE_OFF: usize = 0x7a8;
 pub const WEAPON_DEF_MIN_DAMAGE_RANGE_OFF: usize = 0x7ac;
+/// `float *locationDamageMultipliers`, one per hit location.
+pub const WEAPON_DEF_LOCATION_DAMAGE_OFF: usize = 0x7bc;
 pub const WEAPON_DEF_ADS_GUN_KICK_REDUCED_BULLETS_OFF: usize = 0x688;
 pub const WEAPON_DEF_ADS_GUN_KICK_REDUCED_PERCENT_OFF: usize = 0x68c;
 pub const WEAPON_DEF_ADS_GUN_KICK_PITCH_MIN_OFF: usize = 0x690;

@@ -127,22 +127,23 @@ pub(crate) fn damage(
     weapon: &str,
     tag: &str,
 ) {
+    let location = hit_location(tag);
+    let amount = location_scaled(world, hit, location);
     diag::debug!(
         Sim,
-        "actor {actor}: hit {} {} by {weapon} at {tag:?}",
-        hit.amount,
+        "actor {actor}: hit {amount} {} by {weapon} at {tag:?}",
         hit.means
     );
     let args = vec![
         attacker.clone(),
         attacker,
-        Value::Int(hit.amount),
+        Value::Int(amount),
         Value::Int(hit.flags),
         Value::string(hit.means),
         Value::string(weapon),
         Value::Vector(hit.point),
         Value::Vector(hit.dir),
-        Value::string(hit_location(tag)),
+        Value::string(location),
         Value::Int(0),
         Value::Int(0),
     ];
@@ -151,6 +152,28 @@ pub(crate) fn damage(
         diag::warn!(Sim, "actor damage callback: {fault:?}");
         let _ = finish_damage(world, actor, &args);
     }
+}
+
+/// A shot on a body bone scales by the weapon's multiplier for that hit
+/// location, as a shot on a player does; blasts and melee hit no bone.
+fn location_scaled(
+    world: &mut World,
+    hit: &super::entity_damage::EntityHit,
+    location: &str,
+) -> i32 {
+    if hit.bone.is_none() {
+        return hit.amount;
+    }
+    let Some(hitloc) = weapon_iw4::HITLOC_NAMES
+        .iter()
+        .position(|name| *name == location)
+    else {
+        return hit.amount;
+    };
+    let scale = crate::frame::FrameWorld::from_world(world)
+        .combat_facts_for(hit.weapon)
+        .map_or(1.0, |facts| facts.location_scale(hitloc as u8));
+    (hit.amount as f32 * scale) as i32
 }
 
 /// `FinishActorDamage(inflictor, attacker, damage, flags, means, weapon,

@@ -351,6 +351,29 @@ pub(super) fn read_bounce_array_t5(
     Some(values)
 }
 
+/// The weapon's per-hit-location damage multipliers. Black Ops' hit
+/// locations are Modern Warfare 2's first 19 in the same order; MW2's
+/// trailing `shield` slot keeps 1.
+pub(super) fn read_location_damage_t5(
+    stream: &fastfile_t5::ZoneStream<'_>,
+    body: fastfile_t5::Ptr,
+) -> Option<[f32; weapon_iw4::HITLOC_COUNT]> {
+    use fastfile_t5::size as sz;
+    let arr = match stream.ptr_at(body, sz::WEAPON_DEF_LOCATION_DAMAGE_OFF) {
+        Ok(fastfile_t5::ZonePtr::Offset(q)) => stream.resolve_alias(q),
+        _ => return None,
+    };
+    let mut values = weapon_iw4::LOCATION_DAMAGE_IDENTITY;
+    for (i, value) in values
+        .iter_mut()
+        .take(sz::WEAPON_LOCATION_DAMAGE_COUNT)
+        .enumerate()
+    {
+        *value = stream.f32_at(arr, i * 4).ok()?;
+    }
+    Some(values)
+}
+
 pub(super) fn leftover_t5_offhand_class(raw: i32) -> i32 {
     match raw {
         4 => 5,
@@ -760,6 +783,7 @@ pub(super) fn capture_t5_body_facts(
     facts.min_damage = i32_at_t5(stream, body, sz::WEAPON_DEF_MIN_DAMAGE_OFF);
     facts.max_damage_range = f32_at_t5(stream, body, sz::WEAPON_DEF_MAX_DAMAGE_RANGE_OFF);
     facts.min_damage_range = f32_at_t5(stream, body, sz::WEAPON_DEF_MIN_DAMAGE_RANGE_OFF);
+    facts.location_damage_mult = read_location_damage_t5(stream, body);
     facts.explosion_radius = i32_at_t5(stream, body, sz::WEAPON_DEF_EXPLOSION_RADIUS_OFF);
     facts.explosion_radius_min = i32_at_t5(stream, body, sz::WEAPON_DEF_EXPLOSION_RADIUS_MIN_OFF);
     facts.explosion_inner_damage =
