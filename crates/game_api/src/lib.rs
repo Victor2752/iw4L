@@ -133,6 +133,34 @@ pub trait GameMenus: Sync {
 
     /// How the game's menu engine places and scales an item.
     fn layout(&self) -> Rule<&'static dyn MenuLayout>;
+
+    /// The menu the in-game menu key (Escape) opens.
+    fn ingame_menu(&self) -> Rule<InGameMenu>;
+
+    /// How a slider item draws.
+    fn slider(&self) -> Rule<SliderStyle>;
+}
+
+/// How a menu slider item draws.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SliderStyle {
+    /// A bar across the item, a thumb on it and the value after it (IW4L's).
+    Bar,
+    /// Ten blocks in the item's text column, filled up to the value, with
+    /// the thumb arrow below them.
+    Blocks,
+}
+
+/// What the in-game menu key opens.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum InGameMenu {
+    /// The menu the `g_scriptMainMenu` dvar names.
+    ScriptMainMenu,
+    /// `menu`, once `requires` is loaded too.
+    Named {
+        menu: &'static str,
+        requires: Option<&'static str>,
+    },
 }
 
 /// How a game's menu engine places and scales an item's rect and text.

@@ -18,6 +18,9 @@ const ZOMBIES: &str = "zom";
 /// turn slowdown).
 const ZOMBIE_ENGINE_DVARS: &[(&str, &str)] = &[
     ("zombiemode", "1"),
+    // The zombies executable is the singleplayer one; menus test this to
+    // hide the multiplayer rows.
+    ("ui_multiplayer", "0"),
     ("ai_runAnimUpdateFrequency", "0.05"),
     ("ai_useLeanRunAnimations", "0"),
     ("ai_slowdownRateBlendFactor", "1"),
@@ -151,6 +154,20 @@ impl game_api::GameMenus for T5 {
             }
         };
         Rule::Known(name)
+    }
+
+    /// `UI_SetActiveMenu(UIMENU_INGAME)` in zombies: the pause menu, only
+    /// once the in-game options are loaded.
+    fn ingame_menu(&self) -> Rule<game_api::InGameMenu> {
+        Rule::Known(game_api::InGameMenu::Named {
+            menu: "pausedmenu",
+            requires: Some("ingameoptions"),
+        })
+    }
+
+    /// `Item_Slider_Paint`.
+    fn slider(&self) -> Rule<game_api::SliderStyle> {
+        Rule::Known(game_api::SliderStyle::Blocks)
     }
 
     fn layout(&self) -> Rule<&'static dyn game_api::MenuLayout> {

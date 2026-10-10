@@ -54,7 +54,9 @@ pub fn register_game_menus(menus: GameMenusOf) {
     let _ = GAME_MENUS.set(menus);
 }
 
-fn game_menus(family: asset_core::AssetNamespace) -> Option<&'static dyn game_api::GameMenus> {
+pub(crate) fn game_menus(
+    family: asset_core::AssetNamespace,
+) -> Option<&'static dyn game_api::GameMenus> {
     GAME_MENUS.get().map(|menus| menus(family))
 }
 
@@ -1050,7 +1052,19 @@ fn push_stretch(
         t1: if rect.h < 0.0 { t0 } else { t1 },
         color,
         material,
-        op: Draw2dOp::StretchPic,
+        op: if item.rotation == 0.0 {
+            Draw2dOp::StretchPic
+        } else {
+            // The image turns inside its rect, about the frame's center.
+            Draw2dOp::RotateSt {
+                center_s: (s0 + s1) * 0.5,
+                center_t: (t0 + t1) * 0.5,
+                radius_st: (s1 - s0).abs() * 0.5,
+                scale_final_s: 1.0,
+                scale_final_t: if s1 != s0 { (t1 - t0) / (s1 - s0) } else { 1.0 },
+                deg: item.rotation,
+            }
+        },
         provenance: Draw2dProvenance::MenuItem {
             menu: menu.name.clone(),
             index,

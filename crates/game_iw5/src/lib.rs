@@ -52,6 +52,22 @@ impl game_api::GameMenus for Iw5 {
             "Modern Warfare 3's menu engine rules: text origin, text scale, screen placement"
         ))
     }
+
+    fn ingame_menu(&self) -> Rule<game_api::InGameMenu> {
+        Rule::Unknown(unknown!(
+            "iw5.hud.ingame_menu",
+            "which menu Modern Warfare 3's in-game menu key opens",
+            "Modern Warfare 3's in-game menu rule"
+        ))
+    }
+
+    fn slider(&self) -> Rule<game_api::SliderStyle> {
+        Rule::Unknown(unknown!(
+            "iw5.hud.menu_slider",
+            "how Modern Warfare 3's menu engine draws a slider",
+            "Modern Warfare 3's slider paint rule"
+        ))
+    }
 }
 
 impl game_api::GameModes for Iw5 {

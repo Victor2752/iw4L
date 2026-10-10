@@ -163,4 +163,12 @@ impl game_api::GameMenus for T5OnIw4Rules {
     fn layout(&self) -> game_api::Rule<&'static dyn game_api::MenuLayout> {
         game_api::Rule::Known(&game_iw4::MenuLayout)
     }
+
+    fn ingame_menu(&self) -> game_api::Rule<game_api::InGameMenu> {
+        game_api::GameMenus::ingame_menu(&game_t5::GAME)
+    }
+
+    fn slider(&self) -> game_api::Rule<game_api::SliderStyle> {
+        game_api::GameMenus::slider(&game_t5::GAME)
+    }
 }

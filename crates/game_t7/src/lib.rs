@@ -52,6 +52,22 @@ impl game_api::GameMenus for T7 {
             "Black Ops 3's menu rules"
         ))
     }
+
+    fn ingame_menu(&self) -> Rule<game_api::InGameMenu> {
+        Rule::Unknown(unknown!(
+            "t7.hud.ingame_menu",
+            "which menu Black Ops 3's in-game menu key opens",
+            "Black Ops 3's in-game menu rule"
+        ))
+    }
+
+    fn slider(&self) -> Rule<game_api::SliderStyle> {
+        Rule::Unknown(unknown!(
+            "t7.hud.menu_slider",
+            "how Black Ops 3's menu engine draws a slider",
+            "Black Ops 3's slider paint rule"
+        ))
+    }
 }
 
 impl game_api::GameModes for T7 {

@@ -244,6 +244,7 @@ pub fn apply_prepared_match(
             script_level,
             script_entries,
             script_dvars,
+            engine_dvars,
             account_defaults,
             script_sound_aliases,
             objective_weapons,
@@ -604,6 +605,9 @@ pub fn apply_prepared_match(
         for (name, value) in &script_dvars {
             sim.set_gsc_dvar(name, value);
         }
+        for name in &engine_dvars {
+            sim.publish_gsc_dvar(name);
+        }
         for entry in script_entries {
             sim.start_gsc(&entry, sim::script::Value::level(), Vec::new())
                 .map_err(|e| script_refusal(&zone, gametype, "entry", &e))?;
@@ -801,6 +805,8 @@ struct MatchInstallPlan {
     script_level: sim::script::LevelData,
     script_entries: Vec<String>,
     script_dvars: Vec<(String, String)>,
+    /// The game's own engine dvars, which its clients read too.
+    engine_dvars: Vec<String>,
     account_defaults: Option<sim::PlayerDataDefaults>,
     script_sound_aliases: Option<std::collections::BTreeMap<String, Option<bool>>>,
     objective_weapons: Vec<(String, u32)>,
@@ -1240,6 +1246,11 @@ fn preflight_match_install(
             .iter()
             .map(|(name, value)| ((*name).to_owned(), (*value).to_owned())),
     );
+    let engine_dvars = game_scripts
+        .engine_dvars(gametype)
+        .iter()
+        .map(|(name, _)| (*name).to_owned())
+        .collect();
     for (name, value) in rules.map_or(&[][..], |rules| &rules.0) {
         match script_dvars
             .iter_mut()
@@ -1314,6 +1325,7 @@ fn preflight_match_install(
         script_level,
         script_entries,
         script_dvars,
+        engine_dvars,
         account_defaults,
         objective_weapons,
         kind,

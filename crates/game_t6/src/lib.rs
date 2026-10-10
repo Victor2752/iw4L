@@ -139,6 +139,22 @@ impl game_api::GameMenus for T6 {
             "Black Ops 2's menu engine rules: text origin, text scale, screen placement"
         ))
     }
+
+    fn ingame_menu(&self) -> Rule<game_api::InGameMenu> {
+        Rule::Unknown(unknown!(
+            "t6.hud.ingame_menu",
+            "which menu Black Ops 2's in-game menu key opens",
+            "Black Ops 2's in-game menu rule"
+        ))
+    }
+
+    fn slider(&self) -> Rule<game_api::SliderStyle> {
+        Rule::Unknown(unknown!(
+            "t6.hud.menu_slider",
+            "how Black Ops 2's menu engine draws a slider",
+            "Black Ops 2's slider paint rule"
+        ))
+    }
 }
 
 impl game_api::GameModes for T6 {

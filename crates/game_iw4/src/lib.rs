@@ -78,6 +78,15 @@ impl game_api::GameMenus for Iw4 {
     fn layout(&self) -> Rule<&'static dyn game_api::MenuLayout> {
         Rule::Known(&MenuLayout)
     }
+
+    fn ingame_menu(&self) -> Rule<game_api::InGameMenu> {
+        Rule::Known(game_api::InGameMenu::ScriptMainMenu)
+    }
+
+    /// IW4L draws Modern Warfare 2's sliders as its own bar.
+    fn slider(&self) -> Rule<game_api::SliderStyle> {
+        Rule::Known(game_api::SliderStyle::Bar)
+    }
 }
 
 /// Modern Warfare 2's menu engine placement and text scaling.

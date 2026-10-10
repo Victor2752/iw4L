@@ -2,9 +2,9 @@
 //! them (`ExpressionStatement::rpn`). Operators `0..=23` are Black Ops'
 //! `expressionOperatorType_e`; a comma folds call arguments into one list.
 //!
-//! Function indices are named only where Black Ops' own data proves them
-//! (docs/fidelity/t5.md, "menu expression functions"); any other index is an
-//! error, never a guess.
+//! A function's index is its line in the game's own `expressions/functions.txt`
+//! (in `code_post_gfx.ff`) plus 24, as `Expression_Init` maps them. Operand
+//! conversions follow Black Ops' `RPN_OP_*` operators.
 
 use menu_expr::{ExprError, GameQueries, MenuProgram, Operand};
 
@@ -31,6 +31,7 @@ const T5_BITNEG: i32 = 21;
 const T5_SHIFTLEFT: i32 = 22;
 const T5_SHIFTRIGHT: i32 = 23;
 
+const T5_FN_DVAR: i32 = 29;
 const T5_FN_DVARINT: i32 = 30;
 const T5_FN_DVARBOOL: i32 = 31;
 const T5_FN_DVARSTRING: i32 = 33;
@@ -40,8 +41,24 @@ const T5_FN_INKILLCAM: i32 = 38;
 const T5_FN_ISDUALWIELD: i32 = 39;
 const T5_FN_ISFUELWEAPON: i32 = 40;
 const T5_FN_PLAYER: i32 = 41;
+const T5_FN_MENUISOPEN: i32 = 47;
+const T5_FN_INPRIVATEPARTY: i32 = 50;
+const T5_FN_PRIVATEPARTYHOST: i32 = 51;
+const T5_FN_PRIVATEPARTYHOSTINLOBBY: i32 = 52;
 const T5_FN_ADSJAVELIN: i32 = 56;
+const T5_FN_LOCSTRING: i32 = 64;
+const T5_FN_LOCALVARINT: i32 = 65;
+const T5_FN_LOCALVARBOOL: i32 = 66;
+const T5_FN_LOCALVARSTRING: i32 = 68;
+const T5_FN_INT: i32 = 72;
 const T5_FN_KEYBINDING: i32 = 81;
+const T5_FN_GAMEHOST: i32 = 86;
+const T5_FN_ISSPLITSCREEN: i32 = 88;
+const T5_FN_ISSPLITSCREENHOST: i32 = 89;
+const T5_FN_GETTEXTWIDTH: i32 = 204;
+const T5_FN_ISPROFILESIGNEDIN: i32 = 209;
+const T5_FN_MENUHASFOCUS: i32 = 309;
+const T5_FN_ISINGAME: i32 = 355;
 
 #[derive(Clone, Debug)]
 enum T5Token {
@@ -109,84 +126,191 @@ fn parse(tokens: &[&str]) -> Result<Vec<T5Token>, ExprError> {
         .collect()
 }
 
-/// How Black Ops converts between operand types is not known: only operations
-/// whose operands need no conversion are evaluated.
-const COERCION: &str = game_api::unknown!(
-    "t5.hud.expression_coercion",
-    "how Black Ops converts between menu expression operand types",
-    "Black Ops' operand conversion rules"
-)
-.id;
-
-fn int(operand: Operand) -> Result<i32, ExprError> {
-    match operand {
-        Operand::Int(v) => Ok(v),
-        _ => Err(ExprError::Unknown(COERCION)),
+/// C's `atoi`: leading blanks, a sign, then digits; 0 when none.
+fn atoi(text: &str) -> i32 {
+    let text = text.trim_start();
+    let (negative, digits) = match text.as_bytes().first() {
+        Some(b'-') => (true, &text[1..]),
+        Some(b'+') => (false, &text[1..]),
+        _ => (false, text),
+    };
+    let value = digits
+        .bytes()
+        .take_while(u8::is_ascii_digit)
+        .fold(0i32, |n, d| {
+            n.wrapping_mul(10).wrapping_add(i32::from(d - b'0'))
+        });
+    if negative {
+        value.wrapping_neg()
+    } else {
+        value
     }
 }
 
-/// A program's value as a condition.
+/// C's `atof`: the longest leading number; 0 when none.
+fn atof(text: &str) -> f32 {
+    let text = text.trim_start();
+    let bytes = text.as_bytes();
+    let mut end = 0;
+    if matches!(bytes.first(), Some(b'-' | b'+')) {
+        end = 1;
+    }
+    let digits = |from: usize| {
+        bytes[from..]
+            .iter()
+            .take_while(|b| b.is_ascii_digit())
+            .count()
+    };
+    end += digits(end);
+    if bytes.get(end) == Some(&b'.') {
+        end += 1 + digits(end + 1);
+    }
+    if matches!(bytes.get(end), Some(b'e' | b'E')) {
+        let mut exp = end + 1;
+        if matches!(bytes.get(exp), Some(b'-' | b'+')) {
+            exp += 1;
+        }
+        if digits(exp) > 0 {
+            end = exp + digits(exp);
+        }
+    }
+    text[..end].parse().unwrap_or(0.0)
+}
+
+/// `GetSourceInt`: a float truncates, a string is `atoi`.
+fn source_int(value: &Operand) -> i32 {
+    match value {
+        Operand::Int(v) => *v,
+        Operand::Float(v) => *v as i32,
+        Operand::Str(v) => atoi(v),
+    }
+}
+
+/// `GetSourceFloat`: a string is `atof`.
+fn source_float(value: &Operand) -> f32 {
+    match value {
+        Operand::Int(v) => *v as f32,
+        Operand::Float(v) => *v,
+        Operand::Str(v) => atof(v),
+    }
+}
+
+/// `GetSourceString`: an int as `%i`, a float as `%f`.
+fn source_string(value: &Operand) -> String {
+    match value {
+        Operand::Str(v) => v.clone(),
+        Operand::Int(v) => format!("{v}"),
+        Operand::Float(v) => format!("{v:.6}"),
+    }
+}
+
+/// `MakeStringOperandNumber`: a string becomes an int when its `atof` and
+/// `atoi` agree, a float otherwise.
+fn make_number(value: Operand) -> Operand {
+    match value {
+        Operand::Str(text) => {
+            let (f, i) = (atof(&text), atoi(&text));
+            if f == i as f32 {
+                Operand::Int(i)
+            } else {
+                Operand::Float(f)
+            }
+        }
+        other => other,
+    }
+}
+
+/// `RPN_OP_AND`/`RPN_OP_OR`: a string tests its first character.
+fn logic_value(value: Operand) -> bool {
+    match value {
+        Operand::Int(v) => v != 0,
+        Operand::Float(v) => v != 0.0,
+        Operand::Str(v) => v.bytes().next().is_some_and(|b| b != 0),
+    }
+}
+
+/// `IsExpressionTrue`.
 fn truth(value: &Operand) -> Result<bool, ExprError> {
-    match value {
-        Operand::Int(v) => Ok(*v != 0),
-        _ => Err(ExprError::Unknown(COERCION)),
-    }
+    Ok(source_int(value) != 0)
 }
 
-/// A program's value where a number is wanted.
+/// `GetExpressionFloat`.
 fn number(value: &Operand) -> Result<f32, ExprError> {
-    match value {
-        Operand::Int(v) => Ok(*v as f32),
-        Operand::Float(v) => Ok(*v),
-        Operand::Str(_) => Err(ExprError::Unknown(COERCION)),
+    Ok(source_float(value))
+}
+
+/// `GetExpressionResultString`.
+fn text(value: &Operand) -> Result<String, ExprError> {
+    Ok(source_string(value))
+}
+
+/// Ints stay ints; any float makes the result a float.
+fn arithmetic(
+    a: Operand,
+    b: Operand,
+    int: fn(i32, i32) -> i32,
+    float: fn(f32, f32) -> f32,
+) -> Operand {
+    match (make_number(a), make_number(b)) {
+        (Operand::Int(a), Operand::Int(b)) => Operand::Int(int(a, b)),
+        (a, b) => Operand::Float(float(source_float(&a), source_float(&b))),
     }
 }
 
-/// A program's value where text is wanted.
-fn text(value: &Operand) -> Result<String, ExprError> {
-    match value {
-        Operand::Str(v) => Ok(v.clone()),
-        Operand::Int(v) => Ok(format!("{v}")),
-        Operand::Float(_) => Err(ExprError::Unknown(COERCION)),
+fn compare(a: Operand, b: Operand, int: fn(i32, i32) -> bool, float: fn(f32, f32) -> bool) -> bool {
+    match (make_number(a), make_number(b)) {
+        (Operand::Int(a), Operand::Int(b)) => int(a, b),
+        (a, b) => float(source_float(&a), source_float(&b)),
+    }
+}
+
+/// `RPN_OP_EQUALS`: operands of different types compare as numbers; two
+/// strings compare without case.
+fn equals(a: Operand, b: Operand) -> bool {
+    match (a, b) {
+        (Operand::Str(a), Operand::Str(b)) => a.eq_ignore_ascii_case(&b),
+        (a, b) => compare(a, b, |a, b| a == b, |a, b| a == b),
     }
 }
 
 fn binary(op: i32, a: Operand, b: Operand) -> Result<Operand, ExprError> {
     let flag = |v: bool| Operand::Int(i32::from(v));
-    Ok(match (a, b) {
-        (Operand::Int(a), Operand::Int(b)) => match op {
-            T5_MUL => Operand::Int(a.wrapping_mul(b)),
-            T5_MOD if b != 0 => Operand::Int(a.wrapping_rem(b)),
-            T5_PLUS => Operand::Int(a.wrapping_add(b)),
-            T5_MINUS => Operand::Int(a.wrapping_sub(b)),
-            T5_SMALLER => flag(a < b),
-            T5_SMALLEREQ => flag(a <= b),
-            T5_GREATER => flag(a > b),
-            T5_GREATEREQ => flag(a >= b),
-            T5_EQ => flag(a == b),
-            T5_NOTEQ => flag(a != b),
-            T5_LOGAND => flag(a != 0 && b != 0),
-            T5_LOGOR => flag(a != 0 || b != 0),
-            _ => return Err(ExprError::Unknown(COERCION)),
+    Ok(match op {
+        T5_MUL => arithmetic(a, b, i32::wrapping_mul, |a, b| a * b),
+        T5_MINUS => arithmetic(a, b, i32::wrapping_sub, |a, b| a - b),
+        // `RPN_OP_ADD` joins text with `%i`/`%f` numbers.
+        T5_PLUS => match (a, b) {
+            (Operand::Int(a), Operand::Int(b)) => Operand::Int(a.wrapping_add(b)),
+            (a @ Operand::Str(_), b) | (a, b @ Operand::Str(_)) => {
+                Operand::Str(source_string(&a) + &source_string(&b))
+            }
+            (a, b) => Operand::Float(source_float(&a) + source_float(&b)),
         },
-        (Operand::Float(a), Operand::Float(b)) => match op {
-            T5_MUL => Operand::Float(a * b),
-            T5_DIV if b != 0.0 => Operand::Float(a / b),
-            T5_PLUS => Operand::Float(a + b),
-            T5_MINUS => Operand::Float(a - b),
-            T5_SMALLER => flag(a < b),
-            T5_SMALLEREQ => flag(a <= b),
-            T5_GREATER => flag(a > b),
-            T5_GREATEREQ => flag(a >= b),
-            _ => return Err(ExprError::Unknown(COERCION)),
-        },
-        (Operand::Str(a), Operand::Str(b)) => match op {
-            T5_PLUS => Operand::Str(a + &b),
-            T5_EQ => flag(a.eq_ignore_ascii_case(&b)),
-            T5_NOTEQ => flag(!a.eq_ignore_ascii_case(&b)),
-            _ => return Err(ExprError::Unknown(COERCION)),
-        },
-        _ => return Err(ExprError::Unknown(COERCION)),
+        // `RPN_OP_DIVIDE`: always a float, over 1 for a zero divisor.
+        T5_DIV => {
+            let divisor = source_float(&b);
+            let divisor = if divisor == 0.0 { 1.0 } else { divisor };
+            Operand::Float(source_float(&a) / divisor)
+        }
+        // `RPN_OP_MODULUS`: ints, a float rounded down past a hair; over 1
+        // for a zero divisor.
+        T5_MOD => {
+            let to_int = |v: &Operand| match v {
+                Operand::Float(f) => (f + 9.313_226e-10) as i32,
+                other => source_int(other),
+            };
+            let divisor = to_int(&b);
+            Operand::Int(to_int(&a).wrapping_rem(if divisor == 0 { 1 } else { divisor }))
+        }
+        T5_SMALLER => flag(compare(a, b, |a, b| a < b, |a, b| a < b)),
+        T5_SMALLEREQ => flag(compare(a, b, |a, b| a <= b, |a, b| a <= b)),
+        T5_GREATER => flag(compare(a, b, |a, b| a > b, |a, b| a > b)),
+        T5_GREATEREQ => flag(compare(a, b, |a, b| a >= b, |a, b| a >= b)),
+        T5_EQ => flag(equals(a, b)),
+        T5_NOTEQ => flag(!equals(a, b)),
+        T5_LOGAND => flag(logic_value(a) && logic_value(b)),
+        T5_LOGOR => flag(logic_value(a) || logic_value(b)),
+        other => return Err(ExprError::UnsupportedOp(other)),
     })
 }
 
@@ -198,10 +322,11 @@ fn pop_operand(stack: &mut Vec<Value>) -> Result<Operand, ExprError> {
     pop(stack)?.operand()
 }
 
+/// A name argument; Black Ops reports a number there and evaluates as for "".
 fn arg_str(args: &[Operand]) -> Result<String, ExprError> {
     match args.first() {
         Some(Operand::Str(v)) => Ok(v.clone()),
-        Some(_) => Err(ExprError::Unknown(COERCION)),
+        Some(_) => Ok(String::new()),
         None => Err(ExprError::StackUnderflow),
     }
 }
@@ -209,6 +334,8 @@ fn arg_str(args: &[Operand]) -> Result<String, ExprError> {
 fn call(op: i32, stack: &mut Vec<Value>, host: &dyn GameQueries) -> Result<Operand, ExprError> {
     let mut args = || pop(stack).map(Value::into_args);
     Ok(match op {
+        // Every IW4L dvar holds text, so `dvar` answers as a string dvar.
+        T5_FN_DVAR => Operand::Str(host.dvar_string(&arg_str(&args()?)?)?),
         T5_FN_DVARINT => Operand::Int(host.dvar_int(&arg_str(&args()?)?)?),
         T5_FN_DVARBOOL => Operand::Int(host.dvar_bool(&arg_str(&args()?)?)?),
         T5_FN_DVARSTRING => Operand::Str(host.dvar_string(&arg_str(&args()?)?)?),
@@ -220,6 +347,36 @@ fn call(op: i32, stack: &mut Vec<Value>, host: &dyn GameQueries) -> Result<Opera
         T5_FN_PLAYER => host.player_field(&arg_str(&args()?)?)?,
         T5_FN_ADSJAVELIN => Operand::Int(i32::from(host.ads_javelin()?)),
         T5_FN_KEYBINDING => host.key_binding(&arg_str(&args()?)?)?,
+        T5_FN_MENUISOPEN => Operand::Int(host.menu_is_open(&arg_str(&args()?)?)?),
+        // `InPrivateParty` is `sv_running`; the other party and host tests
+        // are 0 in this game.
+        T5_FN_INPRIVATEPARTY => Operand::Int(host.runs_server()?),
+        T5_FN_PRIVATEPARTYHOST | T5_FN_PRIVATEPARTYHOSTINLOBBY | T5_FN_GAMEHOST => Operand::Int(0),
+        T5_FN_ISSPLITSCREEN => Operand::Int(0),
+        // The one local client is the primary one, and its profile is in.
+        T5_FN_ISSPLITSCREENHOST | T5_FN_ISPROFILESIGNEDIN => Operand::Int(1),
+        T5_FN_LOCSTRING => Operand::Str(host.localize(&args()?)?),
+        T5_FN_LOCALVARINT => Operand::Int(host.local_var_int(&arg_str(&args()?)?)?),
+        T5_FN_LOCALVARBOOL => {
+            Operand::Int(i32::from(host.local_var_int(&arg_str(&args()?)?)? != 0))
+        }
+        T5_FN_LOCALVARSTRING => Operand::Str(host.local_var_string(&arg_str(&args()?)?)?),
+        T5_FN_INT => Operand::Int(source_int(
+            args()?.first().ok_or(ExprError::StackUnderflow)?,
+        )),
+        T5_FN_GETTEXTWIDTH => {
+            let args = args()?;
+            let [text, font, scale] = args.as_slice() else {
+                return Err(ExprError::Host("getTextWidth takes three arguments"));
+            };
+            Operand::Int(host.text_width(
+                &source_string(text),
+                source_int(font),
+                source_float(scale),
+            )?)
+        }
+        T5_FN_MENUHASFOCUS => Operand::Int(host.menu_has_focus()?),
+        T5_FN_ISINGAME => Operand::Int(host.in_game()?),
         other => return Err(ExprError::UnsupportedOp(other)),
     })
 }
@@ -248,16 +405,24 @@ fn evaluate(tokens: &[T5Token], host: &dyn GameQueries) -> Result<Operand, ExprE
                 Operand::Float(v) => Operand::Float(-v),
                 Operand::Str(_) => return Err(ExprError::Host("negate a string")),
             },
-            T5_NOT => Operand::Int(i32::from(int(pop_operand(&mut stack)?)? == 0)),
-            T5_BITNEG => Operand::Int(!int(pop_operand(&mut stack)?)?),
+            // `LogicalNot`/`BitwiseNot`: a string is an error that yields 0.
+            T5_NOT => Operand::Int(match pop_operand(&mut stack)? {
+                Operand::Int(v) => i32::from(v == 0),
+                Operand::Float(v) => i32::from(v == 0.0),
+                Operand::Str(_) => 0,
+            }),
+            T5_BITNEG => Operand::Int(match pop_operand(&mut stack)? {
+                Operand::Str(_) => 0,
+                other => !source_int(&other),
+            }),
             T5_MUL | T5_DIV | T5_MOD | T5_PLUS | T5_MINUS | T5_SMALLER..=T5_LOGOR => {
                 let b = pop_operand(&mut stack)?;
                 let a = pop_operand(&mut stack)?;
                 binary(op, a, b)?
             }
             T5_BITAND | T5_BITOR | T5_SHIFTLEFT | T5_SHIFTRIGHT => {
-                let b = int(pop_operand(&mut stack)?)?;
-                let a = int(pop_operand(&mut stack)?)?;
+                let b = source_int(&pop_operand(&mut stack)?);
+                let a = source_int(&pop_operand(&mut stack)?);
                 Operand::Int(match op {
                     T5_BITAND => a & b,
                     T5_BITOR => a | b,

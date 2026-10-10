@@ -49,6 +49,21 @@ pub(super) fn is_focusable(item: &asset_game::MenuItem) -> bool {
         || !h.mouse_enter.is_empty()
 }
 
+/// The engine's edit field (4), numeric field (9) and decimal field (17).
+pub(super) fn is_text_field(item_type: i32) -> bool {
+    matches!(item_type, 4 | 9 | 17)
+}
+
+/// Whether a text field of `item_type` takes `ch`: a numeric field takes
+/// digits, a decimal field digits, a point and a sign.
+fn text_field_takes(item_type: i32, ch: char) -> bool {
+    match item_type {
+        9 => ch.is_ascii_digit(),
+        17 => ch.is_ascii_digit() || ch == '.' || ch == '-',
+        _ => true,
+    }
+}
+
 pub(super) fn item_rect(item: &asset_game::MenuItem) -> [f32; 4] {
     [item.rect.x, item.rect.y, item.rect.w, item.rect.h]
 }
@@ -58,6 +73,85 @@ pub(super) fn choice_index(choices: &[(String, String)], value: &str) -> Option<
     choices.iter().position(|(_, choice)| {
         choice == value || number.is_some_and(|n| choice.trim().parse::<f32>() == Ok(n))
     })
+}
+
+/// `Item_Slider_Paint`: ten blocks 10 apart in the item's text column,
+/// filled up to the value (the block it falls in half filled), and the thumb
+/// arrow turned up below them.
+fn slider_blocks(
+    item: &asset_game::MenuItem,
+    fraction: f32,
+    namespace: Option<asset_core::AssetNamespace>,
+) -> Vec<asset_game::MenuItem> {
+    const FILLED: [f32; 4] = [0.96, 0.58, 0.11, 1.0];
+    const EMPTY: [f32; 4] = [0.96, 0.58, 0.11, 0.2];
+    const WIDTH: f32 = 100.0;
+    const BLOCK: f32 = 9.0;
+    const EPSILON: f32 = 2.0;
+    let material = |name: &str| {
+        namespace
+            .and_then(|ns| {
+                asset_core::AssetKey::new(ns, asset_core::AssetKind::Material, name).ok()
+            })
+            .map_or_else(|| name.to_owned(), |key| key.to_string())
+    };
+    // `Item_GetRectPlacementX`/`Y`.
+    let x = match item.text_align_mode & 3 {
+        0 => item.text_align_x,
+        1 => (item.rect.w - WIDTH) * 0.5 + item.text_align_x,
+        _ => item.rect.w - WIDTH + item.text_align_x,
+    };
+    let y = match item.text_align_mode & 0xc {
+        8 => (item.rect.h - BLOCK) * 0.5 + item.text_align_y,
+        12 => item.rect.h - BLOCK + item.text_align_y,
+        _ => item.text_align_y,
+    };
+    let thumb = x + fraction * WIDTH;
+    let part = |dx: f32, dy: f32, w: f32, h: f32, color: [f32; 4], background: String| {
+        let mut part = item.clone();
+        part.slider = None;
+        part.dvar.clear();
+        part.text_key.clear();
+        part.text_exp.clear();
+        part.handlers = Default::default();
+        part.item_type = 0;
+        part.static_flags |= WINDOW_DECORATION;
+        part.style = 3;
+        part.background = background;
+        part.fore_color = color;
+        part.back_color = color;
+        part.rect.x += dx;
+        part.rect.y += dy;
+        part.rect.w = w;
+        part.rect.h = h;
+        part
+    };
+    let white = material("white");
+    let mut parts = Vec::new();
+    for block in 0..10 {
+        let at = x + 10.0 * block as f32;
+        if thumb + EPSILON <= at + 10.0 {
+            if at <= thumb - EPSILON {
+                parts.push(part(at, y, 4.0, BLOCK, FILLED, white.clone()));
+                parts.push(part(at + 4.0, y, 4.0, BLOCK, EMPTY, white.clone()));
+            } else {
+                parts.push(part(at, y, BLOCK, BLOCK, EMPTY, white.clone()));
+            }
+        } else {
+            parts.push(part(at, y, BLOCK, BLOCK, FILLED, white.clone()));
+        }
+    }
+    let mut arrow = part(
+        thumb - 4.0,
+        y + 8.0,
+        7.0,
+        7.0,
+        FILLED,
+        material("ui_arrow_right"),
+    );
+    arrow.rotation = -90.0;
+    parts.push(arrow);
+    parts
 }
 
 fn painted_def(def: &MenuDef, open: &OpenMenu) -> MenuDef {
@@ -119,6 +213,8 @@ pub(crate) struct MenuInputs<'w, 's> {
     unified: Option<Res<'w, frame::UnifiedFrontend>>,
     native_menu: Res<'w, frame::NativeGameMenu>,
     map_identity: Option<Res<'w, assets::SessionMapIdentity>>,
+    /// The match's game's own menus, when its zones ship them.
+    game_menus: Option<Res<'w, asset_game::SessionHudMenus>>,
 }
 
 #[derive(Default)]
@@ -174,12 +270,18 @@ pub(crate) fn update_script_menus(
         *menus = ScriptMenus::default();
     }
     let requests: Vec<UiMenuRequest> = input.requests.read().cloned().collect();
-    let Some(catalog) = catalog.as_deref() else {
+    let in_game = matches!(*input.screen, AppScreen::InGame | AppScreen::ClassSelect);
+    // In a match whose game ships its own in-game menus, those run.
+    let game_catalog = input
+        .game_menus
+        .as_ref()
+        .and_then(|menus| menus.0.clone())
+        .filter(|_| in_game);
+    let Some(catalog) = game_catalog.as_deref().or(catalog.as_deref()) else {
         return;
     };
     let snapshot = presented.snapshot();
     let meta = snapshot.and_then(|s| s.meta.for_client(local.0));
-    let in_game = matches!(*input.screen, AppScreen::InGame | AppScreen::ClassSelect);
     let frontend = *input.screen == AppScreen::MainMenu;
     let native = in_game
         && input
@@ -255,6 +357,7 @@ pub(crate) fn update_script_menus(
                 .snapshot()
                 .and_then(|snap| snap.meta.for_client(local.0))
                 .is_some_and(|meta| meta.radar_blocked),
+        virtual_to_real: surface.scale_virtual_to_real()[1],
     };
 
     let mut runner = Runner {
@@ -383,7 +486,9 @@ pub(crate) fn update_script_menus(
         .filter(|s| in_game && crate::scoreboard::displayed(world.scores_open, s, local.0))
         .filter(|_| !input.mode.as_ref().is_some_and(|mode| !mode.hud.scoreboard))
         .and_then(|_| catalog.get(SCOREBOARD_MENU));
-    if (menus.stack.is_empty() && scoreboard.is_none()) || !surface.is_ready() {
+    if (menus.stack.is_empty() && menus.shown.is_empty() && scoreboard.is_none())
+        || !surface.is_ready()
+    {
         return;
     }
     let open_names = menus.open_names();
@@ -397,6 +502,25 @@ pub(crate) fn update_script_menus(
             None,
         ));
     }
+    for name in &menus.shown {
+        if menus.position(name).is_some() {
+            continue;
+        }
+        if let Some(def) = catalog.get(name) {
+            let state = OpenMenu {
+                name: def.name.clone(),
+                captures_input: false,
+                focus: None,
+                hover: None,
+                items: vec![state::ItemState::default(); def.items.len()],
+            };
+            layers.push((
+                name.clone(),
+                std::borrow::Cow::Owned(painted_def(def, &state)),
+                None,
+            ));
+        }
+    }
     let paint_start = menus
         .stack
         .iter()
@@ -406,6 +530,12 @@ pub(crate) fn update_script_menus(
                 .is_some_and(|def| def.fullscreen != 0)
         })
         .unwrap_or(0);
+    let slider_style = crate::chrome::game_menus(
+        catalog
+            .namespace
+            .unwrap_or(crate::images::HUD_CHROME_NAMESPACE),
+    )
+    .map(|menus| menus.slider());
     for open in &menus.stack[paint_start..] {
         let Some(def) = catalog.get(&open.name) else {
             continue;
@@ -428,7 +558,7 @@ pub(crate) fn update_script_menus(
                 item.text_align_x = -8.0;
                 item.text_align_y = 0.0;
             }
-            if item.item_type == 4 && !item.dvar.is_empty() {
+            if is_text_field(item.item_type) && !item.dvar.is_empty() {
                 item.text_key = out.dvars.get(&item.dvar).unwrap_or("").to_owned();
                 if item.edit_field.as_ref().is_some_and(|field| field.masked) {
                     item.text_key = "*".repeat(item.text_key.chars().count());
@@ -443,49 +573,59 @@ pub(crate) fn update_script_menus(
                     .and_then(|v| v.parse::<f32>().ok())
                     .unwrap_or(slider.min);
                 let fraction = ((value - slider.min) / (slider.max - slider.min)).clamp(0.0, 1.0);
-                for (x, y, w, h, color) in [
-                    (0.0, 9.0, item.rect.w, 2.0, [0.6, 0.6, 0.6, 1.0]),
-                    (
-                        fraction * (item.rect.w - 6.0),
-                        3.0,
-                        6.0,
-                        14.0,
-                        [1.0, 1.0, 1.0, 1.0],
-                    ),
-                ] {
-                    let mut part = item.clone();
-                    part.slider = None;
-                    part.dvar.clear();
-                    part.text_key.clear();
-                    part.text_exp.clear();
-                    part.item_type = 0;
-                    part.static_flags |= WINDOW_DECORATION;
-                    part.style = 1;
-                    part.background = "white".into();
-                    part.back_color = color;
-                    part.rect.x += x;
-                    part.rect.y += y;
-                    part.rect.w = w;
-                    part.rect.h = h;
-                    slider_parts.push(part);
+                let style = match slider_style {
+                    Some(game_api::Rule::Known(style)) => Some(style),
+                    Some(game_api::Rule::Unknown(_)) => None,
+                    None => Some(game_api::SliderStyle::Bar),
+                };
+                if style == Some(game_api::SliderStyle::Blocks) {
+                    slider_parts.extend(slider_blocks(item, fraction, catalog.namespace));
                 }
-                let mut label = item.clone();
-                label.slider = None;
-                label.dvar.clear();
-                label.item_type = 0;
-                label.static_flags |= WINDOW_DECORATION;
-                label.background.clear();
-                label.back_color = [0.0; 4];
-                label.text_exp.clear();
-                label.text_literal = true;
-                let displayed = slider
-                    .display_range
-                    .map_or(value, |[min, max]| min + fraction * (max - min));
-                let decimals = usize::from(slider.decimals.min(6));
-                label.text_key = format!("{displayed:.decimals$}{}", slider.suffix);
-                label.rect.x += item.rect.w + 8.0;
-                label.rect.w = 36.0;
-                slider_parts.push(label);
+                if style == Some(game_api::SliderStyle::Bar) {
+                    for (x, y, w, h, color) in [
+                        (0.0, 9.0, item.rect.w, 2.0, [0.6, 0.6, 0.6, 1.0]),
+                        (
+                            fraction * (item.rect.w - 6.0),
+                            3.0,
+                            6.0,
+                            14.0,
+                            [1.0, 1.0, 1.0, 1.0],
+                        ),
+                    ] {
+                        let mut part = item.clone();
+                        part.slider = None;
+                        part.dvar.clear();
+                        part.text_key.clear();
+                        part.text_exp.clear();
+                        part.item_type = 0;
+                        part.static_flags |= WINDOW_DECORATION;
+                        part.style = 1;
+                        part.background = "white".into();
+                        part.back_color = color;
+                        part.rect.x += x;
+                        part.rect.y += y;
+                        part.rect.w = w;
+                        part.rect.h = h;
+                        slider_parts.push(part);
+                    }
+                    let mut label = item.clone();
+                    label.slider = None;
+                    label.dvar.clear();
+                    label.item_type = 0;
+                    label.static_flags |= WINDOW_DECORATION;
+                    label.background.clear();
+                    label.back_color = [0.0; 4];
+                    label.text_exp.clear();
+                    label.text_literal = true;
+                    let displayed = slider
+                        .display_range
+                        .map_or(value, |[min, max]| min + fraction * (max - min));
+                    let decimals = usize::from(slider.decimals.min(6));
+                    label.text_key = format!("{displayed:.decimals$}{}", slider.suffix);
+                    label.rect.x += item.rect.w + 8.0;
+                    label.rect.w = 36.0;
+                    slider_parts.push(label);
+                }
                 item.background.clear();
                 item.text_key.clear();
                 item.text_exp.clear();
@@ -519,6 +659,7 @@ pub(crate) fn update_script_menus(
             focus_rect,
         ));
     }
+    let focused = menus.input_menu().map(|m| m.name.clone());
     for (name, painted, focus_rect) in &layers {
         let host = MenuHost {
             world: &world,
@@ -527,6 +668,7 @@ pub(crate) fn update_script_menus(
             locals: &locals,
             open: &open_names,
             focus_rect: *focus_rect,
+            focused: focused.as_deref(),
         };
         let mut owner_draw = |args: OwnerDrawArgs<'_>, frame: &mut ChromeFrame| {
             if args.item.owner_draw == 181 {
@@ -611,6 +753,49 @@ pub(crate) fn update_script_menus(
     }
 }
 
+/// The menu the in-game menu key opens, by the rule of the catalog's game.
+fn ingame_menu(runner: &Runner<'_, '_>) -> Option<String> {
+    let namespace = runner
+        .catalog
+        .namespace
+        .unwrap_or(crate::images::HUD_CHROME_NAMESPACE);
+    let rule = crate::chrome::game_menus(namespace).map_or(
+        game_api::Rule::Known(game_api::InGameMenu::ScriptMainMenu),
+        |menus| menus.ingame_menu(),
+    );
+    match rule {
+        game_api::Rule::Known(game_api::InGameMenu::ScriptMainMenu) => {
+            let main = runner
+                .world
+                .dvars
+                .as_ref()
+                .and_then(|d| d.string(MAIN_MENU_DVAR))
+                .filter(|name| !name.is_empty() && runner.catalog.get(name).is_some())
+                .map(str::to_owned);
+            Some(main.unwrap_or_else(|| {
+                diag::warn!(
+                    Ui,
+                    "togglemenu: {MAIN_MENU_DVAR} names no loaded menu, opening {FALLBACK_MAIN_MENU}"
+                );
+                FALLBACK_MAIN_MENU.to_owned()
+            }))
+        }
+        game_api::Rule::Known(game_api::InGameMenu::Named { menu, requires }) => {
+            let loaded = |name: &str| runner.catalog.get(name).is_some();
+            if loaded(menu) && requires.is_none_or(loaded) {
+                Some(menu.to_owned())
+            } else {
+                diag::warn!(Ui, "togglemenu: `{menu}` or what it needs is not loaded");
+                None
+            }
+        }
+        game_api::Rule::Unknown(gap) => {
+            diag::info!(Ui, "game gap {}: {}", gap.id, gap.what);
+            None
+        }
+    }
+}
+
 fn handle_input(
     runner: &mut Runner<'_, '_>,
     input: &MenuInputs,
@@ -669,8 +854,16 @@ fn handle_input(
         if pressed.delete && edit.cursor < edit.buffer.len() {
             edit.buffer.remove(edit.cursor);
         }
+        let item_type = runner
+            .catalog
+            .get(&edit.menu)
+            .and_then(|def| def.items.get(edit.item))
+            .map_or(4, |item| item.item_type);
         for text in &pressed.text {
-            for ch in text.chars().filter(|ch| !ch.is_control()) {
+            for ch in text
+                .chars()
+                .filter(|ch| !ch.is_control() && text_field_takes(item_type, *ch))
+            {
                 if edit.buffer.len() >= edit.max_chars {
                     break;
                 }
@@ -686,21 +879,9 @@ fn handle_input(
             Some(top) => runner.escape(&top),
             None if !runner.world.in_game => runner.open("iw4l_main"),
             None => {
-                let main = runner
-                    .world
-                    .dvars
-                    .as_ref()
-                    .and_then(|d| d.string(MAIN_MENU_DVAR))
-                    .filter(|name| !name.is_empty() && runner.catalog.get(name).is_some())
-                    .map(str::to_owned);
-                let name = main.unwrap_or_else(|| {
-                    diag::warn!(
-                        Ui,
-                        "togglemenu: {MAIN_MENU_DVAR} names no loaded menu, opening {FALLBACK_MAIN_MENU}"
-                    );
-                    FALLBACK_MAIN_MENU.to_owned()
-                });
-                runner.open(&name);
+                if let Some(name) = ingame_menu(runner) {
+                    runner.open(&name);
+                }
             }
         }
         return;
@@ -764,6 +945,7 @@ fn handle_input(
         locals: runner.locals,
         open: &names,
         focus_rect: None,
+        focused: Some(&top),
     };
     let rects = item_screen_rects(&painted, &host, surface, runner.exprs);
     let visible = runner.visible_items(&top);
