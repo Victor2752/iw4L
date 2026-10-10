@@ -29,6 +29,22 @@ const CG_PLAYER_WEAPON_AMMO_CLIP_DUAL_WIELD: i32 = 121;
 const CG_PLAYER_WEAPON_AMMO_STOCK: i32 = 122;
 const CG_PLAYER_ACTIONSLOT_1: i32 = 166;
 const CG_PLAYER_ACTIONSLOT_4: i32 = 169;
+const CG_COMPETITIVE_MODE_SCORES: i32 = 288;
+
+/// Black Ops' cgame dvars the HUD reads: their registered defaults, with the
+/// values the singleplayer `default.cfg` sets through `coop_arcademode.cfg`
+/// (its zombie block) where it sets one.
+const CGAME_DVARS: &[(&str, &str)] = &[
+    ("cg_scoreboardItemHeight", "18"),
+    ("cg_scoreboardFont", "3"),
+    ("cg_scoreboardTextOffset", "0.62"),
+    ("cg_ScoresColor_Zombie", "0.424 0.004 0"),
+    ("cg_ScoresColor_TransparencyZombie", "0.8"),
+    ("cg_ScoresColor_Gamertag_0", "1.0 1.0 1.0"),
+    ("cg_ScoresColor_Gamertag_1", "0.486 0.812 0.933"),
+    ("cg_ScoresColor_Gamertag_2", "0.965 0.792 0.314"),
+    ("cg_ScoresColor_Gamertag_3", "0.514 0.925 0.533"),
+];
 
 /// What the local client knows that Black Ops' HUD expressions ask for.
 pub(crate) struct T5HudState<'a> {
@@ -45,6 +61,9 @@ pub(crate) struct T5HudState<'a> {
     pub weapon_name: Option<String>,
     pub hide_ammo: bool,
     pub ammo_widths: [i32; 2],
+    /// Every connected client's points, by client number.
+    pub scores: Vec<(u32, i32)>,
+    pub local_client: u32,
 }
 
 impl T5HudState<'_> {
@@ -67,8 +86,28 @@ impl T5HudState<'_> {
             "splitscreen" | "cl_paused" => Some(flag(false)),
             "ui_ammo_stock_width" => Some(self.ammo_widths[0].to_string()),
             "ui_right_ammo_width" => Some(self.ammo_widths[1].to_string()),
-            _ => None,
+            _ => CGAME_DVARS
+                .iter()
+                .find(|(dvar, _)| dvar.eq_ignore_ascii_case(name))
+                .map(|(_, value)| (*value).to_owned()),
         }
+    }
+
+    fn dvar_float(&self, name: &str) -> f32 {
+        self.dvar(name)
+            .and_then(|value| value.trim().parse().ok())
+            .unwrap_or(0.0)
+    }
+
+    /// `Dvar_GetUnpackedColor`: "r g b [a]", alpha 1 when left out.
+    fn dvar_color(&self, name: &str) -> [f32; 4] {
+        let mut color = [0.0, 0.0, 0.0, 1.0];
+        if let Some(value) = self.dvar(name) {
+            for (slot, part) in color.iter_mut().zip(value.split_whitespace()) {
+                *slot = part.parse().unwrap_or(0.0);
+            }
+        }
+        color
     }
 }
 
@@ -343,9 +382,172 @@ fn paint_owner(
             push_pic(&args, namespace, material.to_owned(), frame);
             OwnerDrawPaint::Painted
         }
+        CG_COMPETITIVE_MODE_SCORES => {
+            competitive_mode_scores(state, &args, frame);
+            OwnerDrawPaint::Painted
+        }
         CG_PLAYER_HEAT_VALUE => OwnerDrawPaint::Gap(ChromeGapKind::OwnerDraw),
         _ => OwnerDrawPaint::Gap(ChromeGapKind::OwnerDraw),
     }
+}
+
+/// The points a client's bar shows, walked toward its real score one draw at
+/// a time (`CG_ScoreBarColumnValue`): a fifth of the gap plus one per draw,
+/// single points under 15.
+fn shown_score(client: u32, score: i32) -> i32 {
+    static SHOWN: std::sync::Mutex<[i32; 32]> = std::sync::Mutex::new([0; 32]);
+    let mut shown = SHOWN.lock().unwrap_or_else(|poison| poison.into_inner());
+    let Some(slot) = shown.get_mut(client as usize) else {
+        return score;
+    };
+    let delta = score - *slot;
+    if delta == 0 {
+        return score;
+    }
+    let step = if (1..16).contains(&delta) {
+        1
+    } else if (-15..0).contains(&delta) {
+        -1
+    } else {
+        (f64::from(delta) * 0.2 + 1.0) as i32
+    };
+    *slot += step;
+    if (score < *slot && delta > 0) || (*slot < score && delta < 0) {
+        *slot = score;
+    }
+    *slot
+}
+
+/// `CG_DrawCompetitiveModeScores` in zombies: one bar per connected client,
+/// the highest client number on the item's row and each lower one 24 units
+/// above, as `CG_DrawPlayerScoreBar` lays a zombies bar out.
+fn competitive_mode_scores(
+    state: &T5HudState<'_>,
+    args: &OwnerDrawArgs<'_>,
+    frame: &mut ChromeFrame,
+) {
+    let item_height = state.dvar_float("cg_scoreboardItemHeight");
+    let mut y = args.rect.y;
+    for &(client, score) in state.scores.iter().rev() {
+        let local = client == state.local_client;
+        let mut base = state.dvar_color("cg_ScoresColor_Zombie");
+        base[3] = args.color[3];
+        player_score_bar(
+            state,
+            args,
+            client,
+            score,
+            base,
+            y - (9.0 + if local { 3.0 } else { 0.0 }),
+            local,
+            frame,
+        );
+        y = y - (item_height + 9.0) - (1.0 - 4.0);
+    }
+}
+
+/// `CG_DrawPlayerScoreBar` with the zombies column table: the client's
+/// `scorebar_zom_<n>` bar and its points in the scoreboard font, the local
+/// client's bar taller, brighter and full width.
+#[allow(clippy::too_many_arguments)]
+fn player_score_bar(
+    state: &T5HudState<'_>,
+    args: &OwnerDrawArgs<'_>,
+    client: u32,
+    score: i32,
+    base: [f32; 4],
+    y: f32,
+    local: bool,
+    frame: &mut ChromeFrame,
+) {
+    let row_height =
+        state.dvar_float("cg_scoreboardItemHeight") - if local { 0.0 } else { 3.0 } + 9.0;
+    let mut color = base;
+    color[0] += if local { 0.05 } else { 0.0 };
+    color[3] = state.dvar_float("cg_ScoresColor_TransparencyZombie")
+        * if local { 2.0 } else { 0.8 }
+        * base[3];
+    let width_cut = if local { 0.0 } else { 20.0 };
+    let (x, w) = (args.rect.x, args.rect.w);
+    let (horz, vert) = (args.rect.horz_align as i32, args.rect.vert_align as i32);
+    let bar = args
+        .surface
+        .apply_rect(x, y, w - width_cut, row_height, horz, vert);
+    frame.list.cmds.push(Draw2dCmd {
+        material_namespace: args.assets.namespace(),
+        x: bar.x,
+        y: bar.y,
+        w: bar.w,
+        h: bar.h,
+        s0: 0.0,
+        t0: 0.0,
+        s1: 1.0,
+        t1: 1.0,
+        color,
+        material: format!("scorebar_zom_{}", client.min(3) + 1),
+        op: Draw2dOp::StretchPic,
+        provenance: Draw2dProvenance::OwnerDraw(args.item.owner_draw),
+        layer: 1,
+    });
+    let font_enum = state.dvar_float("cg_scoreboardFont") as i32;
+    let Some(font_name) =
+        args.assets
+            .font_name(font_enum, args.surface.scale_virtual_to_real()[1], 0.35)
+    else {
+        return;
+    };
+    let Some(font) = args
+        .assets
+        .catalog
+        .and_then(|catalog| catalog.font(font_name))
+    else {
+        return;
+    };
+    let mut text_color = if client < 4 {
+        state.dvar_color(&format!("cg_ScoresColor_Gamertag_{client}"))
+    } else {
+        [0.0, 0.0, 0.0, 1.0]
+    };
+    text_color[3] = base[3];
+    let text = shown_score(client, score).to_string();
+    // `CG_DrawScoreBarColumnText`: shrink to the column, baseline from the
+    // font's pixel height and the row, `cg_scoreboardTextOffset` down it.
+    let mut scale = 0.35 + if local { 0.04 } else { -0.05 };
+    while crate::chrome::ui_text_width(font, &text, scale) > w && scale > 0.0 {
+        scale -= 0.025;
+    }
+    let style = if scale < 0.2 { 0 } else { 3 };
+    let baseline = (font.pixel_height as f32 * scale + row_height)
+        * state.dvar_float("cg_scoreboardTextOffset")
+        + y;
+    let glyph = hud_iw4::normalized_text_scale(font.pixel_height, scale);
+    let at = args
+        .surface
+        .apply_rect(x + 5.0, baseline, glyph, glyph, horz, vert);
+    frame.list.cmds.push(Draw2dCmd {
+        material_namespace: args.assets.namespace(),
+        x: (at.x + 0.5).floor(),
+        y: (at.y + 0.5).floor(),
+        w: at.w,
+        h: at.h,
+        s0: 0.0,
+        t0: 0.0,
+        s1: 1.0,
+        t1: 1.0,
+        color: text_color,
+        material: asset_core::AssetRef::bare_name(&font.material).to_owned(),
+        op: Draw2dOp::TextRun {
+            font: font_name.to_owned(),
+            scale: glyph,
+            text,
+            loc_key: String::new(),
+            style,
+            fx: None,
+            glow: None,
+        },
+        provenance: Draw2dProvenance::OwnerDraw(args.item.owner_draw),
+        layer: 1,
+    });
 }
 
 /// Every menu of Black Ops' HUD lists, in list order, through the menu

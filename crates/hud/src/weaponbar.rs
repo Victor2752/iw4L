@@ -781,6 +781,17 @@ pub(crate) fn update_weaponbar(
             weapon_name: name,
             hide_ammo,
             ammo_widths,
+            scores: {
+                let mut scores: Vec<(u32, i32)> = snap
+                    .meta
+                    .clients
+                    .iter()
+                    .map(|(id, meta)| (id.0, meta.score))
+                    .collect();
+                scores.sort_unstable();
+                scores
+            },
+            local_client: local.0.0,
         };
         let (list, errors) = crate::t5_hud::paint(
             t5,
