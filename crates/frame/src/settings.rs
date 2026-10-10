@@ -28,16 +28,29 @@ pub enum OtherGame {
     BlackOps,
     BlackOps2,
     ModernWarfare3,
+    ModernWarfare2,
+    ModernWarfare,
+    BlackOps3,
 }
 
 impl OtherGame {
-    pub const ALL: [Self; 3] = [Self::BlackOps, Self::BlackOps2, Self::ModernWarfare3];
+    pub const ALL: [Self; 6] = [
+        Self::BlackOps,
+        Self::BlackOps2,
+        Self::BlackOps3,
+        Self::ModernWarfare3,
+        Self::ModernWarfare2,
+        Self::ModernWarfare,
+    ];
 
     pub const fn key(self) -> &'static str {
         match self {
             Self::BlackOps => "black_ops",
             Self::BlackOps2 => "black_ops_2",
+            Self::BlackOps3 => "black_ops_3",
             Self::ModernWarfare3 => "modern_warfare_3",
+            Self::ModernWarfare2 => "modern_warfare_2",
+            Self::ModernWarfare => "modern_warfare",
         }
     }
 
@@ -45,7 +58,10 @@ impl OtherGame {
         match self {
             Self::BlackOps => "Black Ops",
             Self::BlackOps2 => "Black Ops II",
+            Self::BlackOps3 => "Black Ops III",
             Self::ModernWarfare3 => "Modern Warfare 3",
+            Self::ModernWarfare2 => "Modern Warfare 2",
+            Self::ModernWarfare => "Modern Warfare",
         }
     }
 
@@ -73,7 +89,7 @@ pub struct GameSettings {
     pub sensitivity: f32,
     pub invert_mouse: bool,
     pub player_name: String,
-    pub game_folders: [String; 3],
+    pub game_folders: [String; 6],
 
     pub pad_layout: u8,
     pub pad_stick_layout: u8,

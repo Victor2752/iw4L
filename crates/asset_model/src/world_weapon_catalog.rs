@@ -268,6 +268,16 @@ impl WorldWeaponBuild {
             entry.resolve_materials(materials);
         }
     }
+
+    /// The materials the captured models' surfaces name.
+    pub fn material_names(&self) -> std::collections::BTreeSet<String> {
+        self.catalog
+            .entries
+            .iter()
+            .flat_map(|entry| entry.material_keys.iter().flatten())
+            .map(|key| key.name.clone())
+            .collect()
+    }
 }
 
 impl WorldWeaponCatalog {
@@ -330,12 +340,7 @@ impl WorldWeaponCatalog {
     pub fn collide_name_count(&self) -> usize {
         let mut seen: HashMap<&str, u8> = HashMap::new();
         for k in &self.order {
-            *seen.entry(k.name.as_str()).or_insert(0) |= match k.namespace {
-                AssetNamespace::Iw4 => 1,
-                AssetNamespace::T5 => 2,
-                AssetNamespace::Iw5 => 4,
-                AssetNamespace::T6 => 8,
-            };
+            *seen.entry(k.name.as_str()).or_insert(0) |= 1 << (k.namespace as u8);
         }
         seen.values().filter(|bits| bits.count_ones() >= 2).count()
     }

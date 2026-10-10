@@ -10,7 +10,6 @@ use super::{
 };
 use crate::lane_capability::{LaneStatus, PreparedCapability};
 use crate::session_load::PreparedWorld;
-use asset_core::ZoneGame;
 use asset_material::decode_material_color_maps;
 use asset_transport::progress::{LoadProgress, StageId};
 use asset_transport::{T5ZoneMemory, ZoneImage};
@@ -22,7 +21,6 @@ use asset_world::{
 pub struct T5Lane;
 
 impl T5Lane {
-    pub const GAME: ZoneGame = ZoneGame::T5;
     pub const CAPABILITIES: &'static [(PreparedCapability, LaneStatus)] = &[
         (PreparedCapability::Envelope, LaneStatus::SupportedPopulated),
         (
@@ -49,10 +47,6 @@ impl T5Lane {
 }
 
 impl ZoneLane for T5Lane {
-    fn game(&self) -> ZoneGame {
-        Self::GAME
-    }
-
     fn capabilities(&self) -> &'static [(PreparedCapability, LaneStatus)] {
         Self::CAPABILITIES
     }
@@ -154,8 +148,16 @@ impl ZoneLane for T5Lane {
                 geometry.tri_count
             ));
             match build_t5_clip_collision(&stream, geometry).and_then(|mut clip| {
-                sink.map_xmodels
+                let foreign = sink
+                    .map_xmodels
                     .attach_t5_clip_models(&stream, geometry, &mut clip)?;
+                if !foreign.is_empty() {
+                    report.push(format!(
+                        "t5 clip: {} static models reference another zone; collision not attached: {}",
+                        foreign.len(),
+                        foreign.join(", ")
+                    ));
+                }
                 Ok(clip)
             }) {
                 Ok(clip) => {
@@ -199,6 +201,10 @@ impl ZoneLane for T5Lane {
         let createart_name = sink.createart_name.clone();
         let t5_teamset = sink.t5_teamset.clone();
         let script_sound = std::mem::take(&mut sink.script_sound).finish();
+        let path_nodes = asset_world::path_network_t5(&stream, &sink.strings_t5);
+        if !path_nodes.is_empty() {
+            report.push(format!("path network: {} nodes", path_nodes.len()));
+        }
         let mut scripts = std::mem::take(&mut sink.scripts);
         if let Some(entities) = asset_world::map_ents_entity_string_t5(&stream) {
             scripts.set_entities(entities.to_owned());
@@ -286,6 +292,7 @@ impl ZoneLane for T5Lane {
                 facts: crate::MapFacts {
                     t5_teamset: t5_teamset.clone(),
                     script_sound: script_sound.clone(),
+                    path_nodes: path_nodes.clone(),
                     ..Default::default()
                 },
                 report,
@@ -476,6 +483,7 @@ impl ZoneLane for T5Lane {
                         compass,
                         t5_teamset: t5_teamset.clone(),
                         script_sound: script_sound.clone(),
+                        path_nodes: path_nodes.clone(),
                         ..Default::default()
                     },
                     report,
@@ -501,6 +509,7 @@ impl ZoneLane for T5Lane {
                     facts: crate::MapFacts {
                         t5_teamset: t5_teamset.clone(),
                         script_sound: script_sound.clone(),
+                        path_nodes: path_nodes.clone(),
                         ..Default::default()
                     },
                     report,
@@ -684,6 +693,7 @@ impl ZoneLane for T5Lane {
             report,
             teamsets: sink.teamsets,
             scene_models: sink.scene_models,
+            scripts: sink.scripts,
             film_visions: std::collections::BTreeMap::new(),
             ..Default::default()
         }

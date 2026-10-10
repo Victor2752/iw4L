@@ -33,10 +33,18 @@ pub(crate) fn spawn(
     world.unlink_player_area(id);
     world.client_meta_mut(id).shield = None;
     let mut ps = spawn_player_state(origin, angles);
+    // Zombie spectators copy their (dead) health into maxhealth before
+    // spawning; a T5 spawn starts at the default full health regardless.
     if let Some(max) = world
         .client_meta(id)
         .map(|m| m.max_health)
         .filter(|&n| n > 0)
+        .filter(|_| {
+            !world
+                .bootstrap_ref()
+                .mode
+                .is_some_and(|mode| mode.spawn_at_default_health)
+        })
     {
         ps.max_health = max;
         ps.health = max;
@@ -124,6 +132,8 @@ pub(crate) enum HitInflictor {
 pub(crate) struct Hit {
     pub victim: ClientId,
     pub attacker: Option<ClientId>,
+    /// The attacking script entity when it is not a player (an actor).
+    pub attacker_object: Option<u64>,
     pub amount: i32,
     pub flags: i32,
     pub means: &'static str,
@@ -204,6 +214,7 @@ pub(crate) fn damage(
     let hit = Hit {
         victim: intent.target,
         attacker: Some(intent.attacker),
+        attacker_object: None,
         amount,
         flags: if splash { IDFLAGS_RADIUS } else { 0 },
         means: means_of_death(world, intent),
@@ -248,6 +259,7 @@ pub(crate) fn debug_damage(world: &mut FrameWorld, tick: Tick, id: ClientId, amo
     let hit = Hit {
         victim: id,
         attacker: None,
+        attacker_object: None,
         amount,
         flags: 0,
         means: "MOD_UNKNOWN",
@@ -269,8 +281,9 @@ pub(crate) enum Finish {
 }
 
 pub(crate) fn god_mode(world: &FrameWorld, id: ClientId) -> bool {
-    world.bootstrap_ref().allow_debug_actions
-        && world.client_meta(id).is_some_and(|meta| meta.god_mode)
+    world.script_invulnerable(id)
+        || world.bootstrap_ref().allow_debug_actions
+            && world.client_meta(id).is_some_and(|meta| meta.god_mode)
 }
 
 pub(crate) fn finish_damage(
@@ -299,7 +312,24 @@ pub(crate) fn finish_damage(
         return Finish::Hurt;
     }
     use playerstate_iw4::pm_flags::LAST_STAND;
-    if ps.perks[0] & playerstate_iw4::PERK_PISTOLDEATH != 0 && ps.pm_flags & LAST_STAND == 0 {
+    let pistol_death = ps.perks[0] & playerstate_iw4::PERK_PISTOLDEATH != 0;
+    let forced = match world
+        .bootstrap_ref()
+        .mode
+        .map(|mode| mode.every_player_downs)
+    {
+        Some(game_api::Rule::Known(forced)) => forced,
+        Some(game_api::Rule::Unknown(gap)) => {
+            diag::info!(Sim, "game gap {}: {}", gap.id, gap.what);
+            false
+        }
+        None => false,
+    };
+    let downs = pistol_death || forced;
+    let Some(ps) = world.player_mut(id) else {
+        return Finish::Hurt;
+    };
+    if downs && ps.pm_flags & LAST_STAND == 0 {
         ps.health = 1;
         ps.pm_type = playerstate_iw4::PM_TYPE_LAST_STAND;
         ps.view_height_target = movement_iw4::view_height::LAST_STAND;
@@ -753,7 +783,14 @@ fn perk_bits(name: &str) -> ([u32; 2], u32) {
     ([perk, perk1], e_flags)
 }
 
+/// Sets Modern Warfare 2's perk bits, which only its movement and weapon
+/// rules read; a game without those rules gets none.
 pub(crate) fn set_perk(world: &mut FrameWorld, id: ClientId, name: &str, on: bool) {
+    if let Some(game_api::Rule::Unknown(gap)) = world.bootstrap_ref().mode.map(|mode| mode.weapons)
+    {
+        world.report_game_gap(gap);
+        return;
+    }
     let (perks, e_flags) = perk_bits(name);
     if let Some(ps) = world.player_mut(id) {
         for (word, perk) in ps.perks.iter_mut().zip(perks) {
