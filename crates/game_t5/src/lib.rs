@@ -101,7 +101,7 @@ const ZOMBIE_MODE: ModeRules = ModeRules {
         scoreboard: false,
         scorebar: false,
         compass: false,
-        script_text: false,
+        script_text: true,
         material_font_floor: false,
     },
 };
@@ -117,19 +117,36 @@ impl game_api::GameVision for T5 {
 }
 
 impl game_api::GameMenus for T5 {
-    /// Only the values the zones' compiled menus prove against their source
-    /// (`UI_FONT_NORMAL` 1, `UI_FONT_EXTRABIG` 6) are known; `UI_FONT_DEFAULT`
-    /// picks by scale with thresholds that live in the executable.
-    fn font(&self, font_enum: i32, _placement_scale: f32, _text_scale: f32) -> Rule<&'static str> {
-        match font_enum {
-            1 => Rule::Known("fonts/normalfont"),
-            6 => Rule::Known("fonts/extrabigfont"),
-            _ => Rule::Unknown(unknown!(
-                "t5.hud.menu_font",
-                "the font a Black Ops menu textfont other than normal (1) and extrabig (6) names",
-                "the UI_FONT_DEFAULT thresholds (ui_smallFont/ui_bigFont/ui_extraBigFont) from Black Ops' console"
-            )),
-        }
+    /// `UI_GetFontHandle`: the fixed enums name their font; the others pick by
+    /// the text scale in real pixels against `ui_smallFont` (0.25) and
+    /// `ui_bigFont` (0.4). `ui_extraBigFont` is never registered, so no scale
+    /// picks the extra big font; `UI_FONT_BOLD` (4) takes the bold font where
+    /// the others take the big one.
+    fn font(&self, font_enum: i32, placement_scale: f32, text_scale: f32) -> Rule<&'static str> {
+        const UI_SMALL_FONT: f32 = 0.25;
+        const UI_BIG_FONT: f32 = 0.4;
+        let name = match font_enum {
+            1 => "fonts/normalfont",
+            2 => "fonts/bigfont",
+            3 => "fonts/smallfont",
+            5 => "fonts/consolefont",
+            6 => "fonts/extrabigfont",
+            _ => {
+                let scale = text_scale * placement_scale;
+                if UI_SMALL_FONT >= scale {
+                    "fonts/smallfont"
+                } else if scale >= UI_BIG_FONT {
+                    if font_enum == 4 {
+                        "fonts/boldfont"
+                    } else {
+                        "fonts/bigfont"
+                    }
+                } else {
+                    "fonts/normalfont"
+                }
+            }
+        };
+        Rule::Known(name)
     }
 
     fn layout(&self) -> Rule<&'static dyn game_api::MenuLayout> {

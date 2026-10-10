@@ -9,8 +9,8 @@ use hud_iw4::{
     HE_TYPE_TENTHS_TIMER_UP, HE_TYPE_TEXT, HE_TYPE_TIMER_DOWN, HE_TYPE_TIMER_STATIC,
     HE_TYPE_TIMER_UP, HE_TYPE_VALUE, HE_TYPE_WAYPOINT, HudElem, KEY_UNBOUND,
     WAYPOINT_CONSTANT_SIZE, WAYPOINT_HIDE_OFFSCREEN, copy_in_use_prefix, hud_elem_glow_color,
-    hud_elem_placement, hud_elem_screen_align, hudelem_font_ui_enum, hudelem_text_scale,
-    lerp_hud_colors, replace_directive, ui_get_font_handle, unbound_directive,
+    hud_elem_placement, hud_elem_screen_align, hudelem_font_base_scale, hudelem_font_ui_enum,
+    lerp_hud_colors, replace_directive, ui_get_font_handle, ui_text_height, unbound_directive,
 };
 use net::{CEntity, CEntityRuntime, FrameClock, LocalPresentClient, PresentedSnapshot};
 use sim::{ClientLifecycle, SnapshotMeta};
@@ -205,6 +205,28 @@ fn place_waypoint(
     Some((center + dir * reach, size))
 }
 
+/// Black Ops' `GetHudElemInfo` font table: an elem's font names a menu font
+/// enum and the base scale its `fontScale` multiplies.
+fn t5_hudelem_font(elem_font: i32) -> (f32, i32) {
+    match elem_font {
+        1 => (0.5, 4),
+        2 => (1.0 / 3.0, 5),
+        3 => (0.25, 1),
+        4 => (0.25, 2),
+        5 => (0.25, 3),
+        6 => (0.25, 6),
+        _ => (0.25, 0),
+    }
+}
+
+/// Black Ops' snapshot carries an elem's `fontScale` in 6 bits as
+/// `round((scale - 1) * 10)`, wrapping, and its client reads `bits * 0.1 + 1`;
+/// the zombie scripts' 8, 16 and 32 draw as 1.6, 3.2 and 6.4.
+fn t5_snapshot_font_scale(scale: f32) -> f32 {
+    let bits = (((scale - 1.0) * 10.0).round() as i32) & 0x3f;
+    bits as f32 * 0.1 + 1.0
+}
+
 fn face_color(color: [u8; 4]) -> [f32; 4] {
     color.map(|c| f32::from(c) / 255.0)
 }
@@ -226,7 +248,10 @@ pub(crate) fn update_hud_elems(
     mut ui_sound: MessageWriter<UiPlaySound>,
     cameras: Query<(&Camera, &GlobalTransform), With<Camera3d>>,
     entities: Query<(&CEntity, &CEntityRuntime)>,
-    mode: Option<Res<game_api::ModeRules>>,
+    (mode, hud_menus): (
+        Option<Res<game_api::ModeRules>>,
+        Option<Res<asset_game::SessionHudMenus>>,
+    ),
 ) {
     if !surface.is_ready() {
         hide(&mut pass);
@@ -266,6 +291,13 @@ pub(crate) fn update_hud_elems(
         return;
     };
 
+    // A game drawn with its own HUD menus draws its hud elems with its own
+    // fonts and font rules.
+    let game_fonts = hud_menus
+        .as_ref()
+        .and_then(|menus| menus.0.as_deref())
+        .filter(|_| mode.as_ref().is_some_and(|mode| mode.hud.game_hud_menus));
+    let vtr = surface.scale_virtual_to_real()[1];
     let cg_time = cg_clock.time();
     let mut layers: [Vec<Draw2dCmd>; 2] = Default::default();
     let mut fonts = HashMap::new();
@@ -274,9 +306,19 @@ pub(crate) fn update_hud_elems(
         if color[3] == 0 {
             continue;
         }
-        let font_scale = hud_iw4::hud_elem_lerp_font_scale(elem, cg_time);
-        let font_height =
-            hud_iw4::hudelem_em_px(elem.font, font_scale, surface.scale_virtual_to_real()[1]);
+        let mut font_scale = hud_iw4::hud_elem_lerp_font_scale(elem, cg_time);
+        if game_fonts.is_some() {
+            font_scale = t5_snapshot_font_scale(font_scale);
+        }
+        let (base_scale, font_enum) = match game_fonts {
+            Some(_) => t5_hudelem_font(elem.font),
+            None => (
+                hudelem_font_base_scale(elem.font),
+                hudelem_font_ui_enum(elem.font),
+            ),
+        };
+        let text_scale = base_scale * font_scale;
+        let font_height = ui_text_height(text_scale) * vtr;
         let provenance = Draw2dProvenance::HudElem {
             index: index as i32,
         };
@@ -376,13 +418,26 @@ pub(crate) fn update_hud_elems(
         if text.is_empty() {
             continue;
         }
-        let text_scale = hudelem_text_scale(elem.font, font_scale);
-        let font_name = ui_get_font_handle(
-            hudelem_font_ui_enum(elem.font),
-            surface.scale_virtual_to_real()[1],
-            text_scale,
-        );
-        let Some(font) = catalog.font(font_name) else {
+        let (font_name, font_catalog, font_namespace) = match game_fonts {
+            // `UI_GetFontHandle` is handed the scale in real pixels.
+            Some(game) => {
+                let assets = crate::chrome::ChromeAssets {
+                    catalog: Some(game),
+                    localize: None,
+                };
+                let Some(name) = assets.font_name(font_enum, vtr, text_scale * vtr) else {
+                    gaps.raise(GapCause::HudElemT5TextRule);
+                    continue;
+                };
+                (name, game, assets.namespace())
+            }
+            None => (
+                ui_get_font_handle(font_enum, vtr, text_scale),
+                &**catalog,
+                crate::images::HUD_CHROME_NAMESPACE,
+            ),
+        };
+        let Some(font) = font_catalog.font(font_name) else {
             gaps.raise(GapCause::FontMissing {
                 name: font_name.to_owned(),
             });
@@ -390,7 +445,7 @@ pub(crate) fn update_hud_elems(
         };
         let material = asset_core::AssetRef::bare_name(&font.material).to_owned();
         if hud_images
-            .get(crate::images::HUD_CHROME_NAMESPACE, &material, &mut images)
+            .get(font_namespace, &material, &mut images)
             .is_none()
         {
             gaps.raise(GapCause::FontAtlasMissing {
@@ -414,7 +469,7 @@ pub(crate) fn update_hud_elems(
         let placed =
             hud_elem_placement(surface.placement(), elem, cg_time, text_width, font_height);
         cmds.push(Draw2dCmd {
-            material_namespace: crate::images::HUD_CHROME_NAMESPACE,
+            material_namespace: font_namespace,
             x: (placed.x + 0.5).floor(),
             y: (placed.text_baseline_y() + 0.5).floor(),
             w: glyph.w,
