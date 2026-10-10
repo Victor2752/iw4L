@@ -6,7 +6,7 @@ use asset_core::FamilyId;
 pub(crate) fn scripts(family: FamilyId) -> &'static dyn game_api::GameScripts {
     match family {
         FamilyId::Iw4 => &game_iw4::GAME,
-        FamilyId::T5 => &game_t5::GAME,
+        FamilyId::T5 => &T5_ON_IW4_RULES,
         FamilyId::Iw5 => &game_iw5::GAME,
         FamilyId::T6 => &game_t6::GAME,
         FamilyId::T7 => &game_t7::GAME,
@@ -17,7 +17,7 @@ pub(crate) fn scripts(family: FamilyId) -> &'static dyn game_api::GameScripts {
 pub fn modes(family: FamilyId) -> &'static dyn game_api::GameModes {
     match family {
         FamilyId::Iw4 => &game_iw4::GAME,
-        FamilyId::T5 => &game_t5::GAME,
+        FamilyId::T5 => &T5_ON_IW4_RULES,
         FamilyId::Iw5 => &game_iw5::GAME,
         FamilyId::T6 => &T6_ON_IW4_MOVEMENT,
         FamilyId::T7 => &game_t7::GAME,
@@ -52,7 +52,7 @@ pub fn menu_parsers() -> menu_expr::MenuParsers {
 pub fn menus(family: FamilyId) -> &'static dyn game_api::GameMenus {
     match family {
         FamilyId::Iw4 => &game_iw4::GAME,
-        FamilyId::T5 => &game_t5::GAME,
+        FamilyId::T5 => &T5_ON_IW4_RULES,
         FamilyId::Iw5 => &game_iw5::GAME,
         FamilyId::T6 => &game_t6::GAME,
         FamilyId::T7 => &game_t7::GAME,
@@ -100,5 +100,67 @@ impl game_api::GameModes for T6OnIw4Movement {
 
     fn zombies(&self) -> Option<&'static game_api::LibraryMode> {
         game_api::GameModes::zombies(&game_t6::GAME)
+    }
+}
+
+/// Black Ops zombies moves, fires, goes down and draws its HUD by Modern
+/// Warfare 2's rules: this fork keeps Kino playable on them until Black Ops'
+/// own exist (the `t5.*` ids these Known answers cover are in
+/// docs/fidelity/t5.md).
+struct T5OnIw4Rules;
+
+static T5_ON_IW4_RULES: T5OnIw4Rules = T5OnIw4Rules;
+
+impl game_api::GameScripts for T5OnIw4Rules {
+    fn program(
+        &self,
+        request: &game_api::ScriptRequest<'_>,
+        sources: &dyn gsc::SourceResolver,
+    ) -> game_api::Rule<game_api::ScriptProgram> {
+        game_api::GameScripts::program(&game_t5::GAME, request, sources)
+    }
+
+    fn engine_dvars(&self, gametype: &str) -> &'static [(&'static str, &'static str)] {
+        game_api::GameScripts::engine_dvars(&game_t5::GAME, gametype)
+    }
+
+    /// Modern Warfare 2's `onlinegame 1`: `end_game` then leaves through
+    /// `ExitLevel` instead of the unimplemented `MissionFailed()`.
+    fn config_defaults(&self) -> &'static [(&'static str, &'static str)] {
+        game_api::GameScripts::config_defaults(&game_iw4::GAME)
+    }
+}
+
+impl game_api::GameModes for T5OnIw4Rules {
+    fn mode(&self, gametype: &str) -> game_api::Rule<game_api::ModeRules> {
+        match game_api::GameModes::mode(&game_t5::GAME, gametype) {
+            game_api::Rule::Known(mut mode) => {
+                mode.movement = game_api::Rule::Known(());
+                mode.weapons = game_api::Rule::Known(());
+                mode.every_player_downs = game_api::Rule::Known(true);
+                mode.hud.code_hud = game_api::Rule::Known(());
+                game_api::Rule::Known(mode)
+            }
+            unknown => unknown,
+        }
+    }
+
+    fn zombies(&self) -> Option<&'static game_api::LibraryMode> {
+        game_api::GameModes::zombies(&game_t5::GAME)
+    }
+}
+
+impl game_api::GameMenus for T5OnIw4Rules {
+    fn font(
+        &self,
+        font_enum: i32,
+        placement_scale: f32,
+        text_scale: f32,
+    ) -> game_api::Rule<&'static str> {
+        game_api::GameMenus::font(&game_t5::GAME, font_enum, placement_scale, text_scale)
+    }
+
+    fn layout(&self) -> game_api::Rule<&'static dyn game_api::MenuLayout> {
+        game_api::Rule::Known(&game_iw4::MenuLayout)
     }
 }

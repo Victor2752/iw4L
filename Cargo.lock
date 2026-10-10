@@ -6025,6 +6025,7 @@ dependencies = [
  "game_t6",
  "game_t7",
  "gamemode_iw4",
+ "gsc",
  "hud_iw4",
  "menu_expr",
  "net",
