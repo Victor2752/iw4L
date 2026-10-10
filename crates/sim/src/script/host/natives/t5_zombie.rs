@@ -130,6 +130,15 @@ pub(crate) fn register(registry: &mut NativeRegistry) {
             Ok(Value::Undefined)
         });
     }
+    // Zombies' `SetMaxHealth(value)` sets the health with the max health, so
+    // Juggernog and a revive fill the player up to it.
+    registry.register(Method, "setmaxhealth", |world, receiver, args| {
+        let client = super::player::player(world, receiver)?;
+        let health = Value::Int(super::super::args::int(args, 0)?);
+        super::super::players::store_field(world, client, "maxhealth", &health)?;
+        super::super::players::store_field(world, client, "health", &health)?;
+        Ok(Value::Undefined)
+    });
     registry.register(Method, "enableinvulnerability", |world, receiver, _| {
         set_invulnerable(world, receiver, true)
     });
