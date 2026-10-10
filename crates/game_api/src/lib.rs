@@ -59,7 +59,7 @@ pub trait GameScripts: Sync {
 
 /// What a game's mode asks of the code around its scripts. Staged for the
 /// match: the simulation reads it from its bootstrap, the HUD as a resource.
-#[derive(bevy_ecs::resource::Resource, Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(bevy_ecs::resource::Resource, Clone, Copy, Debug, PartialEq)]
 pub struct ModeRules {
     /// The level notify that ends the warmup.
     pub play_starts_on: &'static str,
@@ -70,6 +70,9 @@ pub struct ModeRules {
     pub movement: Rule<()>,
     /// Players' weapons run Modern Warfare 2's weapon state machine.
     pub weapons: Rule<()>,
+    /// The share of firing and rechambering time Double Tap (`specialty_rof`)
+    /// leaves; `None` when the mode has no such perk.
+    pub double_tap_rate: Option<f32>,
     /// A spawn starts at the default full health, not the stored max health.
     pub spawn_at_default_health: bool,
     /// The team every player joins on connect, when the scripts pick none.

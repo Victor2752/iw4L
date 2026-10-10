@@ -36,6 +36,7 @@ const MODE: ModeRules = ModeRules {
     every_player_downs: Rule::Known(false),
     movement: Rule::Known(()),
     weapons: Rule::Known(()),
+    double_tap_rate: None,
     spawn_at_default_health: false,
     connect_team: None,
     scripts_spawn_players: false,

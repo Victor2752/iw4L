@@ -461,7 +461,9 @@ pub(crate) fn advance_weapon_command(
                 }
             },
             perks0: ps.perks[0],
+            perks1: ps.perks[1],
             perk_weap_reload_multiplier: weapon_iw4::PERK_WEAP_RELOAD_MULTIPLIER_DEFAULT,
+            perk_weap_rate_multiplier: world.bootstrap_ref().mode.and_then(|m| m.double_tap_rate),
             offhand: {
                 let mut inventory = [OffhandInvRow::default(); OFFHAND_INV_SLOTS];
                 for (i, &slot) in ps.weapons.iter().enumerate() {

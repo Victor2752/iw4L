@@ -20,6 +20,9 @@ pub const PERK_FASTRELOAD: u32 = 4;
 
 pub const PERK_WEAP_RELOAD_MULTIPLIER_DEFAULT: f32 = 0.5;
 
+/// The second perk word's bit Black Ops keeps Double Tap (`specialty_rof`) in.
+pub const PERK1_RATEOFFIRE: u32 = 0x100;
+
 pub fn perk_fastreload_eligible(perks0: u32, inherits_perks: bool) -> bool {
     (perks0 & PERK_FASTRELOAD) != 0 && inherits_perks
 }
@@ -712,7 +715,13 @@ pub struct WeaponCmd {
 
     pub perks0: u32,
 
+    pub perks1: u32,
+
     pub perk_weap_reload_multiplier: f32,
+
+    /// The share of fire and rechamber time Double Tap leaves
+    /// (`perk_weapRateMultiplier`); `None` when the game has no such perk.
+    pub perk_weap_rate_multiplier: Option<f32>,
 }
 
 impl Default for WeaponCmd {
@@ -747,7 +756,9 @@ impl Default for WeaponCmd {
             switch_first_raise_time_ms: 0,
             offhand: crate::offhand::OffhandCmd::default(),
             perks0: 0,
+            perks1: 0,
             perk_weap_reload_multiplier: PERK_WEAP_RELOAD_MULTIPLIER_DEFAULT,
+            perk_weap_rate_multiplier: None,
         }
     }
 }
@@ -777,10 +788,24 @@ pub fn weapon_time_adjust(
     cmd: &WeaponCmd,
 ) -> i32 {
     let reload_family = matches!(hand.weaponstate, 0x8 | 0x9 | 0xA | 0xB | 0xC);
-    if !(reload_family && perk_fastreload_eligible(cmd.perks0, facts.inherits_perks)) {
-        return cmd.msec;
+    if reload_family && perk_fastreload_eligible(cmd.perks0, facts.inherits_perks) {
+        return perk_scaled_time(hand, cmd, cmd.perk_weap_reload_multiplier);
     }
-    let multiplier = cmd.perk_weap_reload_multiplier;
+    // Black Ops zombies: Double Tap shortens the fire and rechamber time of
+    // every weapon (`PM_Weapon_WeaponTimeAdjust`).
+    let fire_family = matches!(hand.weaponstate, 0x6 | 0x7);
+    if fire_family
+        && cmd.perks1 & PERK1_RATEOFFIRE != 0
+        && let Some(multiplier) = cmd.perk_weap_rate_multiplier
+    {
+        return perk_scaled_time(hand, cmd, multiplier);
+    }
+    cmd.msec
+}
+
+/// A command's time under a perk's multiplier, rounded to nearest; a zero
+/// multiplier ends the state at once.
+fn perk_scaled_time(hand: &WeaponHandState, cmd: &WeaponCmd, multiplier: f32) -> i32 {
     if multiplier == 0.0 {
         return hand.weapon_time.max(hand.weapon_delay);
     }

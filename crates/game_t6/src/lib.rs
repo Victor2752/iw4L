@@ -79,6 +79,7 @@ const MULTIPLAYER_MODE: ModeRules = ModeRules {
         "Black Ops 2's weapon state machine",
         "Black Ops 2's weapon rules"
     )),
+    double_tap_rate: None,
     spawn_at_default_health: false,
     connect_team: None,
     scripts_spawn_players: false,

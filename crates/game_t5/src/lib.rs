@@ -74,6 +74,10 @@ const ZOMBIE_MODE: ModeRules = ModeRules {
         "Black Ops' weapon state machine: fire, reload, switch, ADS, melee, offhands",
         "Black Ops' weapon rules from its executable"
     )),
+    // `perk_weapRateMultiplier` (`Perks_RegisterDvars`); with Double Tap,
+    // `PM_Weapon_WeaponTimeAdjust` runs every weapon's fire and rechamber
+    // time at the command time over it. No zombie script sets the dvar.
+    double_tap_rate: Some(0.75),
     every_player_downs: Rule::Unknown(unknown!(
         "t5.match.last_stand",
         "when a dying Black Ops zombies player goes into last stand, and how a downed player moves and sees",
