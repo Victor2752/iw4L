@@ -262,6 +262,28 @@ pub(crate) fn execute_chrome_menu_ex(
     frame
 }
 
+/// `Item_EnableShowViaDvar` for `showDvar` / `hideDvar`: such an item draws
+/// only while its `dvarTest` value is one of the listed values (show) or is
+/// none of them (hide).
+fn shown_via_dvar(item: &MenuItem, host: &impl ExprHost) -> bool {
+    const ITEM_DVAR_FLAG_SHOW: i32 = 4;
+    const ITEM_DVAR_FLAG_HIDE: i32 = 8;
+    if item.dvar_flags & (ITEM_DVAR_FLAG_SHOW | ITEM_DVAR_FLAG_HIDE) == 0
+        || item.enable_dvar.is_empty()
+        || item.dvar_test.is_empty()
+    {
+        return true;
+    }
+    // A dvar the host cannot read tests as unset.
+    let value = host
+        .dvar_string(&item.dvar_test)
+        .unwrap_or_else(|_| String::new());
+    let listed = crate::menus::script::tokens(&item.enable_dvar)
+        .iter()
+        .any(|listed| listed.eq_ignore_ascii_case(&value));
+    listed == (item.dvar_flags & ITEM_DVAR_FLAG_SHOW != 0)
+}
+
 pub(crate) fn item_screen_rects(
     menu: &MenuDef,
     host: &impl ExprHost,
@@ -276,7 +298,7 @@ pub(crate) fn item_screen_rects(
     };
     let mut out = Vec::new();
     for (index, item) in menu.items.iter().enumerate() {
-        if !matches!(exprs.is_true(&item.vis_exp, host), Ok(true)) {
+        if !shown_via_dvar(item, host) || !matches!(exprs.is_true(&item.vis_exp, host), Ok(true)) {
             continue;
         }
         let Ok(style) = evaluate_item_style(
@@ -319,6 +341,10 @@ fn paint_item(
     owner_draw: Option<&mut dyn FnMut(OwnerDrawArgs<'_>, &mut ChromeFrame) -> OwnerDrawPaint>,
     frame: &mut ChromeFrame,
 ) {
+    if !shown_via_dvar(item, host) {
+        frame.coverage.vis_false();
+        return;
+    }
     match exprs.is_true(&item.vis_exp, host) {
         Ok(false) => {
             frame.coverage.vis_false();

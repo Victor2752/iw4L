@@ -1,6 +1,6 @@
 mod host;
 mod runtime;
-mod script;
+pub(crate) mod script;
 mod state;
 
 use runtime::Runner;
