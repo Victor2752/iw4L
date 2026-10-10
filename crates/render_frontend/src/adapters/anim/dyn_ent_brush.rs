@@ -66,6 +66,9 @@ pub fn register_dyn_ent_brush_systems(app: &mut App) {
                 exec_cell_dyn_brush_cmds
                     .after(link_dyn_ent_brush_cells)
                     .after(frame::WorkerCmdSet::CellStatic),
+                add_scene_brush_surfaces
+                    .after(exec_cell_dyn_brush_cmds)
+                    .after(crate::prepare::scene::gfx_scene::GfxSceneAdd),
             )
                 .in_set(frame::RenderSet::Anim)
                 .in_set(frame::WorkerCmdSet::CellDynBrush),
@@ -249,6 +252,95 @@ fn exec_cell_dyn_brush_cmds(
             continue;
         }
         let Some(model) = cull.brush_models.get(usize::from(brush_model)).copied() else {
+            continue;
+        };
+        let (span_added, _) = append_bmodel_colour_span(
+            cull,
+            model.start_surf,
+            model.surface_count,
+            &mut already,
+            &baked_material_keys,
+            &batch_primary_lights,
+        );
+        added = added.saturating_add(span_added);
+    }
+    if added == 0 {
+        return;
+    }
+    refresh_draw_items_id(cull);
+    if let Some(stats) = stats.as_mut() {
+        stats.keys = cull.draw_items.len() as u32;
+        stats.rebinds = draw_item_rebinds(&cull.draw_items);
+    }
+}
+
+/// The surfaces of every brush model in the scene this frame, as the original
+/// renderer adds a scene brush's `startSurfIndex..+surfaceCount` span
+/// (`R_AddBModelSurfacesCamera`). The world pass draws them without an object
+/// transform, so only a brush model whose vertices were moved to its authored
+/// pose draws, and only while its scene brush stands there: a hidden board
+/// draws nothing, and an opened door or moved debris stops drawing instead of
+/// drawing shut. Spans already drawn through the BSP stay as they are.
+fn add_scene_brush_surfaces(
+    mut scene: Option<ResMut<WorldScene>>,
+    gfx: Res<HostGfxScene>,
+    mut stats: Option<ResMut<DpvsFrameStats>>,
+) {
+    let brushes: Vec<(usize, Mat4)> = gfx
+        .scene
+        .scene_brushes
+        .iter()
+        .filter(|brush| brush.model_index != 0)
+        .map(|brush| {
+            let quat = brush.quat.unwrap_or([0.0, 0.0, 0.0, 1.0]);
+            let pose =
+                crate::prepare::scene::world::transform_from_gfx_placement(brush.origin, quat);
+            (brush.model_index as usize, pose.to_matrix())
+        })
+        .collect();
+    if brushes.is_empty() {
+        return;
+    }
+    let Some(scene) = scene.as_mut() else {
+        return;
+    };
+    if scene
+        .cull
+        .as_ref()
+        .is_none_or(|cull| cull.bmodel_baked_pose.iter().all(Option::is_none))
+    {
+        return;
+    }
+    let baked_material_keys: Vec<Option<u64>> = scene
+        .runtime_material_catalog
+        .parts()
+        .materials
+        .iter()
+        .map(|material| material.baked_draw_surf)
+        .collect();
+    let batch_primary_lights: Vec<u8> = scene
+        .batches
+        .iter()
+        .map(|batch| batch.primary_light_index)
+        .collect();
+    let Some(cull) = scene.cull.as_mut() else {
+        return;
+    };
+    let mut already = HashSet::new();
+    for item in &cull.draw_items {
+        for offset in 0..item.run {
+            already.insert(item.surf.saturating_add(offset));
+        }
+    }
+    let mut added = 0u32;
+    for (model_index, pose) in brushes {
+        let Some(Some(baked)) = cull.bmodel_baked_pose.get(model_index).copied() else {
+            continue;
+        };
+        if !baked.abs_diff_eq(pose, 0.01) {
+            continue;
+        }
+        let Some(model) = cull.brush_models.get(model_index).copied() else {
             continue;
         };
         let (span_added, _) = append_bmodel_colour_span(
