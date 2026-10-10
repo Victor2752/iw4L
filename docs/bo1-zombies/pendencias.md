@@ -1,8 +1,7 @@
 # Pendências, em ordem
 
 1. **Restos dos menus** ([menus.md](menus.md)):
-   - pausar o jogo solo com o menu aberto (`CL_PauseGame`), o que pede uma
-     pausa no relógio da autoridade que não "alcance" os ticks perdidos;
+   - a tecla `pause` do BO1 (`CL_Pause_f`), que pausa sem menu;
    - animações de item (`ui_animate`, `UIAnimInfo`) e blur;
    - esconder a retícula sob o menu;
    - layout de texto do BO1 (`t5.hud.menu_layout`).

@@ -90,3 +90,11 @@ Ver [menus.md](menus.md) para o funcionamento.
 do BO1), `frame/src/settings.rs` (`show_fps`) e
 `console/src/user_settings.rs` (`sensitivity` e `cg_drawFPS`, nos dois sentidos).
 
+## Pausa no solo
+
+`frame::MatchPause`, ligado por `hud/src/menus/mod.rs` quando o ESC abre um
+menu que o jogo manda pausar (`InGameMenu::Named { pauses_offline }`) e a
+partida é offline; lido em `net/src/authority/runtime.rs::authority_should_tick`
+e em `net/src/client/runtime.rs` (`predict_local_move`, `advance_cg_frame_clock`).
+Regra: `CL_PauseGame`, `SV_CheckPaused` e `CL_Frame` do BO1.
+

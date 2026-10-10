@@ -23,8 +23,8 @@ Dá para jogar a Kino solo: andar, atirar, comprar armas, portas e perks
 (Quick Revive, Speed Cola, Double Tap, Juggernog), zumbis entram pelas
 janelas, morrem com headshot, HUD de pontos e rounds, last stand, e o ESC abre
 o menu de pausa e as opções do próprio BO1 (com FPS e sensibilidade numérica
-adicionados pelo IW4L). Faltam o visual (vision set, olhos, portas girando), a
-pausa de verdade no solo, o movimento e as armas do BO1, a música e parte dos sons.
+adicionados pelo IW4L). O menu pausa o jogo no solo. Faltam o visual (vision set,
+olhos, portas girando), o movimento e as armas do BO1, a música e parte dos sons.
 
 ## Onde mais olhar
 

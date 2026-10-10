@@ -15,6 +15,13 @@ zombies usa as listas `ui/ingame.txt` e `ui/ingame_options.txt`
 - **ESC** (`UI_SetActiveMenu(UIMENU_INGAME)`): no zombies abre o
   `pausedmenu`, desde que o `ingameoptions` esteja carregado. É a regra
   `GameMenus::ingame_menu` (`game_t5`); o MW2 abre o menu do `g_scriptMainMenu`.
+- **Pausa no solo** (`CL_PauseGame`): enquanto houver um menu de partida
+  aberto e a partida for só desta máquina (hospeda, um jogador, sem lobby), o
+  `frame::MatchPause` fica ligado. Com ele, a autoridade não roda
+  (`net::authority_should_tick`), o cliente local não prediz nem envia
+  comandos (`predict_local_move`) e o relógio do cliente para no último tick
+  (`advance_cg_frame_clock`). Ao fechar o último menu, tudo volta, sem rajada
+  de ticks. Co-op e MW2 não pausam.
 - **Eventos**: cada menu e cada item têm uma lista de `GenericEventHandler`
   (nome + script). Os nomes são `onOpen`, `onClose`, `onESC`, `action`,
   `onAccept`, `onFocus` e `leaveFocus`, além de `mouseEnter`/`mouseExit` e
@@ -62,7 +69,7 @@ rótulo destacado e controle. `clone_row` copia esse conjunto, renumera o
 
 ## O que falta
 
-Ver [pendências](pendencias.md): pausar no solo, animações dos itens
+Ver [pendências](pendencias.md): a tecla `pause`, animações dos itens
 (`ui_animate`) e blur, a retícula aparecendo sobre o menu e o layout de texto
 do BO1, que ainda é o do MW2.
 
