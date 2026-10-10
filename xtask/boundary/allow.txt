@@ -146,8 +146,8 @@ pattern crates/asset_game/src/weapon_catalog/capture_iw5.rs fastfile_iw5:: 93
 pattern crates/asset_game/src/weapon_catalog/capture_iw5.rs weapon_iw4:: 1
 pattern crates/asset_game/src/weapon_catalog/capture_merge.rs fastfile_iw5:: 1
 pattern crates/asset_game/src/weapon_catalog/capture_t5.rs AssetNamespace::<game> 2
-pattern crates/asset_game/src/weapon_catalog/capture_t5.rs fastfile_t5:: 78
-pattern crates/asset_game/src/weapon_catalog/capture_t5.rs weapon_iw4:: 2
+pattern crates/asset_game/src/weapon_catalog/capture_t5.rs fastfile_t5:: 82
+pattern crates/asset_game/src/weapon_catalog/capture_t5.rs weapon_iw4:: 4
 pattern crates/asset_game/src/weapon_catalog/capture_t6.rs AssetNamespace::<game> 1
 pattern crates/asset_game/src/weapon_catalog/capture_t6.rs fastfile_t6:: 44
 pattern crates/asset_game/src/weapon_catalog/capture_t6.rs weapon_iw4:: 10
@@ -425,7 +425,7 @@ pattern crates/hud/src/flash.rs hud_iw4:: 1
 pattern crates/hud/src/gpu_list.rs hud_iw4:: 5
 pattern crates/hud/src/hud_elems.rs AssetNamespace::<game> 3
 pattern crates/hud/src/hud_elems.rs entity_iw4:: 1
-pattern crates/hud/src/hud_elems.rs hud_iw4:: 7
+pattern crates/hud/src/hud_elems.rs hud_iw4:: 6
 pattern crates/hud/src/hud_elems.rs playerstate_iw4:: 1
 pattern crates/hud/src/hudelem.rs hud_iw4:: 3
 pattern crates/hud/src/images.rs AssetNamespace::<game> 1
@@ -464,7 +464,7 @@ pattern crates/hud/src/scoreboard.rs gamemode_iw4:: 1
 pattern crates/hud/src/scoreboard.rs hud_iw4:: 1
 pattern crates/hud/src/splash.rs hud_iw4:: 7
 pattern crates/hud/src/surface.rs hud_iw4:: 1
-pattern crates/hud/src/t5_hud.rs hud_iw4:: 4
+pattern crates/hud/src/t5_hud.rs hud_iw4:: 5
 pattern crates/hud/src/t5_hud.rs playerstate_iw4:: 1
 pattern crates/hud/src/t5_hud.rs weapon_iw4:: 1
 pattern crates/hud/src/targetmap.rs gamemode_iw4:: 1
@@ -887,6 +887,7 @@ pattern crates/sim/src/remote_missile.rs entity_iw4:: 4
 pattern crates/sim/src/remote_missile.rs playerstate_iw4:: 3
 pattern crates/sim/src/rules.rs gamemode_iw4:: 1
 pattern crates/sim/src/score.rs gamemode_iw4:: 2
+pattern crates/sim/src/script/host/actors.rs weapon_iw4:: 1
 pattern crates/sim/src/script/host/audio.rs entity_iw4:: 1
 pattern crates/sim/src/script/host/controls.rs hud_iw4:: 1
 pattern crates/sim/src/script/host/controls.rs playerstate_iw4:: 3
