@@ -36,5 +36,6 @@ game. Keep them this short: nobody opens a long file twice.
 | [`POSTFX.md`](POSTFX.md) | authored map-family film, bloom and highlight profiles; remaining effects | comparing game-family presentation |
 | [`GSC-POSTFX.md`](GSC-POSTFX.md) | script vision, color correction, blur, DoF and bloom | authoring or debugging GSC post effects |
 | [`BOTS.md`](BOTS.md) | host AI: the per-tick pipeline, what a probe that never ran may not claim, the shared query budget, resumable routes, fighting from a position | bot decisions, bot movement, "why is it standing there" |
+| [`bo1-zombies/`](bo1-zombies/README.md) | this fork's Black Ops 1 Zombies work (in Portuguese): architecture, the decompiled-engine reference, what is implemented, menus, testing, next steps | continuing the Kino port |
 | [`BLACKOPS_TODO.md`](../BLACKOPS_TODO.md) | Black Ops Zombies roadmap: what runs on Kino, how to start solo and co-op, what is left | playing or extending zombies |
 | [`fidelity/`](fidelity/) | per-game fidelity ledgers (`iw4.md`, `t5.md`, `iw5.md`, `t6.md`): every rule a game does not have yet, by `unknown!` id | before adding or closing a gap |
