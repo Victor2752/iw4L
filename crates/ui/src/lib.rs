@@ -1,7 +1,9 @@
 pub mod barracks;
 pub mod classes;
 mod community_servers;
+mod fps;
 pub mod frontend;
+mod game_options;
 mod gap_hud;
 mod launch_report;
 mod launcher;

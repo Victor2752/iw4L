@@ -331,6 +331,7 @@ fn serialize_settings(settings: &frame::GameSettings, binds: &KeyBinds) -> Strin
         format!("bloom={}", settings.bloom),
         format!("sensitivity={:.3}", settings.sensitivity),
         format!("invert_mouse={}", settings.invert_mouse),
+        format!("show_fps={}", settings.show_fps),
         format!("player_name={safe_name}"),
         format!("pad_layout={}", settings.pad_layout),
         format!("pad_stick_layout={}", settings.pad_stick_layout),
@@ -391,6 +392,7 @@ fn parse_settings(source: &str, settings: &mut frame::GameSettings, binds: &mut 
                 }
             }
             "third_person" => parse_into(value, &mut settings.third_person),
+            "show_fps" => parse_into(value, &mut settings.show_fps),
             "fov" => {
                 if let Ok(v) = value.parse() {
                     settings.fov = v;
@@ -509,13 +511,15 @@ pub(crate) fn native_menu_settings(
                 }
             }
             "ui_player_name" => settings.player_name = value.clone(),
-            "ui_sensitivity" => {
-                if let Ok(v) = value.parse::<f32>()
+            // `sensitivity` is the engine dvar a game's own options menu sets.
+            "ui_sensitivity" | "sensitivity" => {
+                if let Ok(v) = value.trim().parse::<f32>()
                     && v.is_finite()
                 {
                     settings.sensitivity = v;
                 }
             }
+            "ui_show_fps" | "cg_drawFPS" => settings.show_fps = value.trim() != "0",
             "ui_fov" => {
                 if let Ok(v) = value.parse::<f32>() {
                     settings.fov = v;
@@ -567,6 +571,10 @@ pub(crate) fn native_menu_settings(
     dvars.set("ui_brightness", settings.brightness.to_string());
     dvars.set("ui_fov", settings.fov.to_string());
     dvars.set("ui_sensitivity", settings.sensitivity.to_string());
+    dvars.set("sensitivity", format!("{:.2}", settings.sensitivity));
+    for name in ["ui_show_fps", "cg_drawFPS"] {
+        dvars.set(name, if settings.show_fps { "1" } else { "0" });
+    }
     for name in ["ui_third_person", "cg_thirdPerson"] {
         dvars.set(name, if settings.third_person { "1" } else { "0" });
     }

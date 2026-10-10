@@ -41,5 +41,7 @@ impl Plugin for UiPlugin {
         crate::t6_menu::register(app);
         crate::launcher::register(app);
         crate::t6_text::register(app);
+        crate::fps::register(app);
+        crate::game_options::register(app);
     }
 }

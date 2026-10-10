@@ -88,6 +88,8 @@ pub struct GameSettings {
     pub bloom: bool,
     pub sensitivity: f32,
     pub invert_mouse: bool,
+    /// A frames-per-second counter in the screen's corner (`cg_drawFPS`).
+    pub show_fps: bool,
     pub player_name: String,
     pub game_folders: [String; 6],
 
@@ -123,6 +125,7 @@ impl Default for GameSettings {
             bloom: true,
             sensitivity: 5.0,
             invert_mouse: false,
+            show_fps: false,
             player_name: "Player".to_owned(),
             game_folders: Default::default(),
             pad_layout: 0,
