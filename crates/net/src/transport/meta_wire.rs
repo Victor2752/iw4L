@@ -126,6 +126,11 @@ pub(crate) fn encode_action(out: &mut WireWriter, action: &ClientAction) {
             out.put_u32(request_id);
             out.put_i32(amount);
         }
+        ClientAction::DebugScore { request_id, score } => {
+            out.put_u8(24);
+            out.put_u32(request_id);
+            out.put_i32(score);
+        }
         ClientAction::ForceDeath { request_id } => {
             out.put_u8(4);
             out.put_u32(request_id);
@@ -318,6 +323,10 @@ pub(crate) fn decode_action(input: &mut WireReader<'_>) -> Result<ClientAction, 
         }
         22 => Ok(ClientAction::ToggleGod {
             request_id: input.get_u32()?,
+        }),
+        24 => Ok(ClientAction::DebugScore {
+            request_id: input.get_u32()?,
+            score: input.get_i32()?,
         }),
         20 => Ok(ClientAction::ResupplyAmmo {
             request_id: input.get_u32()?,

@@ -76,6 +76,12 @@ pub(crate) fn register_debug_move_commands(registry: &mut ConsoleRegistry) {
             ),
         );
     }
+    if registry.resolve("score").is_none() {
+        registry.register(
+            crate::CommandSpec::new("score")
+                .usage("score <points> — set the local player's points (needs cheats)"),
+        );
+    }
     if registry.resolve("look").is_none() {
         registry.register(crate::CommandSpec::new("look").usage(
             "look <yaw> <pitch> | look actor — write LookState + authority angles (needs cheats)",
@@ -422,6 +428,40 @@ pub(crate) fn route_debug_move_commands(
                 }
                 echo(
                     format!("damage: queued {amount} request_id={request_id}"),
+                    &mut console,
+                    &mut line,
+                );
+            }
+            "score" => {
+                let score = match cmd.args.as_slice() {
+                    [raw] => raw.parse::<i32>().ok().filter(|n| *n >= 0),
+                    _ => None,
+                };
+                let Some(score) = score else {
+                    echo("usage: score <points>".into(), &mut console, &mut line);
+                    continue;
+                };
+                if authority.as_ref().is_some_and(|a| !a.0.cheats_enabled()) {
+                    echo("score: cheats are off".into(), &mut console, &mut line);
+                    continue;
+                }
+                let Some(inbox) = inbox.as_deref_mut() else {
+                    echo(
+                        "score: no action inbox (not a listen host)".into(),
+                        &mut console,
+                        &mut line,
+                    );
+                    continue;
+                };
+                let request_id = seq.allocate();
+                if let Err(error) =
+                    inbox.push(local.0, ClientAction::DebugScore { request_id, score })
+                {
+                    echo(format!("score: {error}"), &mut console, &mut line);
+                    continue;
+                }
+                echo(
+                    format!("score: queued {score} request_id={request_id}"),
                     &mut console,
                     &mut line,
                 );

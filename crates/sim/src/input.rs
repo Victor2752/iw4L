@@ -85,6 +85,12 @@ pub enum ClientAction {
         amount: i32,
     },
 
+    /// Sets the player's points (`score`), for tests that buy doors and perks.
+    DebugScore {
+        request_id: ActionRequestId,
+        score: i32,
+    },
+
     SetProfile {
         request_id: ActionRequestId,
         profile: PlayerProfile,
@@ -229,6 +235,7 @@ pub fn action_request_id(action: &ClientAction) -> ActionRequestId {
         | ClientAction::BeginScriptMoverRotateVelocity { request_id, .. }
         | ClientAction::ToggleGod { request_id }
         | ClientAction::DebugDamage { request_id, .. }
+        | ClientAction::DebugScore { request_id, .. }
         | ClientAction::SetName { request_id, .. }
         | ClientAction::SetProfile { request_id, .. }
         | ClientAction::UseCopycat { request_id }

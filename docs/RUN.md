@@ -24,7 +24,7 @@ scenario`, `chaos`, `bench` ([`BENCH.md`](BENCH.md)), `bench-live`, `lifecycle-*
 Linux startup creates `iw4`, `iw5`, `t5` and `t6` symlinks in `IW4L_GAMES` for missing games with exactly one valid Steam installation. Existing entries are preserved.
 
 **Cheats are on by default.** The host accepts the debug
-actions: `move`, `look`, `tp`, `nudge`, `god`, `kill`, `damage`, `force_spawn`,
+actions: `move`, `look`, `tp`, `nudge`, `god`, `score`, `kill`, `damage`, `force_spawn`,
 `force_match_start`, `rotatevelocity` and the `give` supply commands. `--no-cheats`
 turns them off for `map`, `serve` and `menu`; a lobby host toggles them in the
 game setup.
@@ -51,7 +51,7 @@ it is part of the script and waits its turn.
 
 ## Verbs and traps
 
-`map spawn class give attach name god kill damage move tp look nudge press hold
+`map spawn class give attach name god score kill damage move tp look nudge press hold
 release bind bot wait mark record stoprecord clip demo dump screenshot ui disconnect quit
 finish_run`
 plus the debug `force_match_start` / `showpos`. `quit` leaves now and abandons
@@ -65,6 +65,7 @@ on host and clients — the host records authority, a client the snapshots it
 received plus its own presented state; `demo LATEST` plays it back.
 
 * `god` toggles invincibility for a live player; repeat it to turn protection off. It blocks damage while cheats are enabled; `kill` still forces death.
+* `score <points>` sets the local player's points (the script `score` field), so a probe can buy zombies doors and perks without playing rounds first. Needs cheats.
 * ADS is `hold +speed_throw`, not `+speed`;
 * Hold Shift (`+breath_sprint`) or bind `+holdbreath` to steady eligible sights
   at full ADS. Breath lasts 4.5 seconds; releasing or exhausting it requires recovery.

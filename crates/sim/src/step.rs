@@ -1208,6 +1208,18 @@ fn apply_action(
 
             ActionOutcome::Applied
         }
+        ClientAction::DebugScore {
+            request_id: _,
+            score,
+        } => {
+            if !world.bootstrap_ref().allow_debug_actions || world.client_meta(id).is_none() {
+                return ActionOutcome::Refused;
+            }
+            world.client_meta_mut(id).score = score;
+            diag::info!(Sim, "score: client={} {score}", id.0);
+
+            ActionOutcome::Applied
+        }
         ClientAction::DebugDamage {
             request_id: _,
             amount,
