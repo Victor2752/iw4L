@@ -24,6 +24,11 @@ pub(super) struct ExactColourGeometry {
     pub(super) world_index_count: usize,
 
     pub(super) world_cpu_indices: Vec<u32>,
+    /// The live brush model rows last written over the world vertices, and
+    /// the byte ranges they cover, so a brush leaving the list gets its baked
+    /// rows back.
+    pub(super) world_brush_rows: Option<std::sync::Arc<Vec<(u64, Vec<u8>)>>>,
+    pub(super) world_brush_ranges: Vec<(u64, usize)>,
     pub(super) smodel_vertex: Option<Buffer>,
     pub(super) smodel_vertex_lighting: Option<Buffer>,
     pub(super) smodel_index: Option<Buffer>,
@@ -95,6 +100,47 @@ impl ExactColourGeometry {
 #[derive(Default)]
 pub(super) struct GeometryUploadResult {
     pub(super) code_mesh_gpu_kind: Option<i32>,
+}
+
+/// Writes the rows of the brush models drawn away from their baked pose over
+/// the world vertex buffer, and puts the baked rows back for any brush that
+/// left the list. Runs only when the frontend published a new list.
+fn write_world_brush_rows(
+    source: &PublishedRenderFrame,
+    geometry: &mut ExactColourGeometry,
+    queue: &RenderQueue,
+) {
+    let Some(buffer) = geometry.world_vertex.as_ref() else {
+        return;
+    };
+    let rows = &source.world_brush_rows;
+    if geometry
+        .world_brush_rows
+        .as_ref()
+        .is_some_and(|written| std::sync::Arc::ptr_eq(written, rows))
+    {
+        return;
+    }
+    let baked: &[u8] =
+        bytemuck::cast_slice(source.world().static_geometry.world_vertices.as_slice());
+    for &(offset, len) in &geometry.world_brush_ranges {
+        if rows.iter().any(|(at, _)| *at == offset) {
+            continue;
+        }
+        let start = offset as usize;
+        if let Some(bytes) = baked.get(start..start + len) {
+            queue.write_buffer(buffer, offset, bytes);
+        }
+    }
+    geometry.world_brush_ranges.clear();
+    for (offset, bytes) in rows.iter() {
+        if offset.saturating_add(bytes.len() as u64) > buffer.size() {
+            continue;
+        }
+        queue.write_buffer(buffer, *offset, bytes);
+        geometry.world_brush_ranges.push((*offset, bytes.len()));
+    }
+    geometry.world_brush_rows = Some(std::sync::Arc::clone(rows));
 }
 
 pub(super) fn upload_exact_geometry(
@@ -183,8 +229,11 @@ pub(super) fn upload_exact_geometry(
                 contents: bytemuck::cast_slice(
                     source.world().static_geometry.world_vertices.as_slice(),
                 ),
-                usage: BufferUsages::VERTEX,
+                // Moved brush models rewrite their rows (`write_world_brush_rows`).
+                usage: BufferUsages::VERTEX | BufferUsages::COPY_DST,
             }));
+            geometry.world_brush_rows = None;
+            geometry.world_brush_ranges.clear();
             // Dynamic impact updates can patch this independently of static vertices.
             geometry.world_effect = Some(device.create_buffer_with_data(&BufferInitDescriptor {
                 label: Some("world_surface_effect_vb"),
@@ -256,6 +305,7 @@ pub(super) fn upload_exact_geometry(
         }
     }
     geometry.generation = source.world().generation;
+    write_world_brush_rows(source, geometry, queue);
 
     upload_xmodel_streams(geometry, source, device, queue);
     upload_particle_cloud(geometry, source, device, queue);

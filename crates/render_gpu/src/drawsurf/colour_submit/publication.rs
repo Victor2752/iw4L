@@ -97,6 +97,10 @@ pub struct RenderFrameData {
     pub pipeline_demand_revision: u64,
     pub smc_vb_patches: Vec<(lighting_iw4::SmcPatchLock, Vec<u8>)>,
     pub smc_ib_patches: Vec<(u32, Vec<u8>)>,
+    /// World vertex rows of brush models drawn away from the pose baked into
+    /// the static world vertices (byte offset, bytes); the whole list is
+    /// replaced when any of them moves.
+    pub world_brush_rows: Arc<Vec<(u64, Vec<u8>)>>,
     pub xmodel_vertices: Arc<Vec<[u8; asset_iw4::size::GFX_PACKED_VERTEX]>>,
     pub xmodel_indices: Arc<Vec<u32>>,
     pub xmodel_surface_ranges: Arc<Vec<(u32, u32)>>,

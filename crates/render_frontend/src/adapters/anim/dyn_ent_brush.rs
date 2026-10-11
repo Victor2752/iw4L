@@ -276,11 +276,12 @@ fn exec_cell_dyn_brush_cmds(
 
 /// The surfaces of every brush model in the scene this frame, as the original
 /// renderer adds a scene brush's `startSurfIndex..+surfaceCount` span
-/// (`R_AddBModelSurfacesCamera`). The world pass draws them without an object
-/// transform, so only a brush model whose vertices were moved to its authored
-/// pose draws, and only while its scene brush stands there: a hidden board
-/// draws nothing, and an opened door or moved debris stops drawing instead of
-/// drawing shut. Spans already drawn through the BSP stay as they are.
+/// (`R_AddBModelSurfacesCamera`) and draws it with its entity's placement. The
+/// world pass draws them without an object transform, so a brush model's
+/// vertices were moved to its authored pose at load; one standing anywhere
+/// else (an opening door, a torn board, lifted debris) has its rows rewritten
+/// at the live pose through `BrushModelLivePoses`. Spans already drawn
+/// through the BSP stay as they are.
 fn add_scene_brush_surfaces(
     mut scene: Option<ResMut<WorldScene>>,
     gfx: Res<HostGfxScene>,
@@ -307,7 +308,7 @@ fn add_scene_brush_surfaces(
     if scene
         .cull
         .as_ref()
-        .is_none_or(|cull| cull.bmodel_baked_pose.iter().all(Option::is_none))
+        .is_none_or(|cull| cull.bmodel_baked.iter().all(Option::is_none))
     {
         return;
     }
@@ -333,12 +334,22 @@ fn add_scene_brush_surfaces(
         }
     }
     let mut added = 0u32;
-    for (model_index, pose) in brushes {
-        let Some(Some(baked)) = cull.bmodel_baked_pose.get(model_index).copied() else {
+    // Brushes out of the scene keep the pose last written for them.
+    let mut live: Vec<(usize, Mat4)> = cull
+        .bmodel_live
+        .poses
+        .iter()
+        .copied()
+        .filter(|(model_index, _)| brushes.iter().all(|(index, _)| index != model_index))
+        .collect();
+    for &(model_index, pose) in &brushes {
+        let Some(Some(baked)) = cull.bmodel_baked.get(model_index) else {
             continue;
         };
-        if !baked.abs_diff_eq(pose, 0.01) {
-            continue;
+        if !baked.pose.abs_diff_eq(pose, 0.01)
+            && live.iter().all(|(index, _)| *index != model_index)
+        {
+            live.push((model_index, pose));
         }
         let Some(model) = cull.brush_models.get(model_index).copied() else {
             continue;
@@ -352,6 +363,24 @@ fn add_scene_brush_surfaces(
             &batch_primary_lights,
         );
         added = added.saturating_add(span_added);
+    }
+    live.sort_unstable_by_key(|(model_index, _)| *model_index);
+    let unchanged = live.len() == cull.bmodel_live.poses.len()
+        && live
+            .iter()
+            .zip(&cull.bmodel_live.poses)
+            .all(|((index, pose), (was_index, was))| {
+                index == was_index && pose.abs_diff_eq(*was, 1e-4)
+            });
+    if !unchanged {
+        let mut rows = Vec::new();
+        for &(model_index, pose) in &live {
+            if let Some(Some(baked)) = cull.bmodel_baked.get(model_index) {
+                baked.rows_at(pose, &mut rows);
+            }
+        }
+        cull.bmodel_live.poses = live;
+        cull.bmodel_live.rows = std::sync::Arc::new(rows);
     }
     if added == 0 {
         return;
