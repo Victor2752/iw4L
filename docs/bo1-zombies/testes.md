@@ -18,12 +18,49 @@ IW4L_SOUND=off IW4L_GAMETYPE=zom ./target/play/iw4l map t5:zombie_theater --cmds
 - Screenshots: `iw4l-artifacts/screenshots/<nome>.png`. Logs: `iw4l-artifacts/logs/<id>.log`
   (o mais novo: `ls -t iw4l-artifacts/logs/*.log | head -1`).
 - `IW4L_LOG_LEVEL=debug` mostra os acertos em atores (`actor N: hit …`) e os pontos (`player 0: score N`).
-- Pontos úteis da Kino: Quick Revive em `move 531 -1205 80 270 10` (custa 500 no
-  solo, sem energia). As posições das máquinas estão no `entities.txt` do dump GSC.
+- Posições úteis: [tabela abaixo](#posições-úteis-na-kino). As outras estão
+  no `entities.txt` do dump GSC (o `origin` do trigger ou do modelo).
 - Verbos: [`../RUN.md`](../RUN.md). `look actor` mira no zumbi mais próximo;
   `damage 300` derruba o jogador; `god` liga invencibilidade.
-- Cuidados: se alguém mexer na janela durante o teste, os `wait`/`look` expiram.
-  O macOS não tem `timeout`. Use `IW4L_SOUND=off` só em testes automáticos.
+- Cuidados:
+  - se alguém mexer na janela durante o teste, os `wait`/`look` expiram e até o
+    `wait world` pode estourar em 120 s (o log mostra `spawned=false`);
+    repita a rodada;
+  - o macOS não tem `timeout`;
+  - use `IW4L_SOUND=off` só em testes automáticos.
+
+## Testes baratos
+
+Cada rodada carrega o mapa (~20 s) e cada screenshot custa tempo e tokens
+para ler. Para economizar:
+
+- **Pontos**: `score 5000` em vez de matar zumbis. O `zombie_cheat` dos
+  scripts não serve: fica em bloco `/# #/`, que o compilador descarta.
+- **Posição**: `move x y z yaw pitch` leva direto ao ponto, e `god` evita
+  morrer no caminho.
+- **Uma rodada, poucas fotos**: junte o antes e o depois na mesma rodada.
+  Cada `screenshot` trava a fila do console por cerca de 1 s (leitura da GPU
+  e PNG de 3456×2168), então não dá para fotografar várias etapas de algo
+  que dura 1 s. Para movimento rápido, use um log temporário.
+- **Log da carga antes do jogo**: `serve t5:zombie_theater --cmds 'wait world; quit'`
+  e grep no log (`world report`, `refused`, `unresolved`, `gap`) achou o
+  defeito dos modelos estáticos sem nenhuma screenshot.
+- **Comece pela decompilação** ([fluxo](decompilacao.md#fluxo-de-trabalho)):
+  com a regra lida, um teste basta para confirmar.
+
+## Posições úteis na Kino
+
+| o quê | comando |
+|---|---|
+| Quick Revive (500 no solo, sem energia) | `move 531 -1205 80 270 10` |
+| porta do foyer (750), lado do corredor | `move 548 -641 322 0 5` e `hold +activate` |
+| a mesma porta vista da sala da caixa | `move 700 -641 322 180 5` |
+| alavanca da energia (bastidores) | `move -488 1200 40 90 0` e `hold +activate` |
+| palco (cortina e tela) | `move 0 300 140 90 0` |
+| pad do teleporte | `move -304 930 90 90 5` |
+| cabo do link do teleporte (chão) | `move -141 -190 90 90 50` |
+
+Depois da energia: a cortina leva ~3 s e a tela desce em 6 s.
 
 ## Conferir o MW2
 

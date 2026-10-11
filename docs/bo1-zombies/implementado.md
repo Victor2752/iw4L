@@ -18,6 +18,9 @@ Liga movimento, armas, last stand e HUD de código do MW2 para o BO1 e usa
 - Aplicação: `sim/src/script/host/actors.rs::location_scaled`. Só tiros em
   osso; explosão e faca não têm região.
 
+> O seba portou o tiro do BO1 com as tabelas de hit location e penetração
+> (`game_t5/src/fire.rs`). No merge fica a versão dele ([fork-seba](fork-seba.md)).
+
 ## Fontes e texto de script — `3ffaefc`
 
 - `game_t5::GameMenus::font` = `UI_GetFontHandle`: os enums fixos dão a
@@ -35,14 +38,41 @@ Liga movimento, armas, last stand e HUD de código do MW2 para o BO1 e usa
 - `CGAME_DVARS`: altura de linha, fonte e as cores do `coop_arcademode.cfg`.
 - `hud/src/weaponbar.rs` passa os placares (`scores`) e o cliente local.
 
-## Tábuas, portas e entulho — `33e6dcf`
+## Tábuas, portas e entulho — `33e6dcf`, `34a6dc4`, `be1c6bb`
 
+Detalhes em [brushes.md](brushes.md).
 - O mundo T5 guarda brush models em `GfxBrushModel` (`world_t5.rs::decode_brush_models`).
 - O backend ignora a transformação de itens do mundo, então a pose autorada é
-  **assada nos vértices** (`render_frontend/src/prepare/scene/world.rs::bake_t5_script_brush_poses`).
-- `render_frontend/src/adapters/anim/dyn_ent_brush.rs::add_scene_brush_surfaces`
-  só desenha a brush enquanto ela está na pose autorada. Por isso uma porta
-  aberta **some** em vez de girar ([pendência](pendencias.md)).
+  **assada nos vértices** na carga
+  (`render_frontend/src/prepare/scene/world.rs::bake_t5_script_brush_poses`).
+- `34a6dc4`: uma brush fora da pose autorada é redesenhada **na pose atual**.
+  As linhas dela são recalculadas e regravadas no buffer de vértices do
+  mundo na GPU, só quando a pose muda (`BakedBrushModel`, `bmodel_live`,
+  `write_world_brush_rows`). Resultados na Kino:
+  - a porta de 750 gira e fica aberta encostada na parede;
+  - a tela de cinema desce depois da cortina.
+- `be1c6bb`: o `solid` da entidade vai no snapshot (protocolo 114). Sem ele o
+  cliente não reconhecia a brush, desenhava até as escondidas e o cabo
+  energizado do teleporte aparecia desde o início.
+
+## Modelos estáticos do mapa — `164e89d`
+
+- Regra: `GfxStaticModelDrawInst` (`gfx_d3d/r_bsp.h`) tem uma entrada por
+  modelo (`smodelCount`). O ponteiro do modelo pode apontar para um XModel já
+  carregado ou trazer o XModel **inline** (primeiro uso na zona).
+- O leitor (`asset_world/src/model_mesh.rs::build_t5_static_model_instances`)
+  pulava as 11 entradas inline. A contagem não batia (3315 ≠ 3326) e o motor
+  descartava todos os modelos estáticos. A Kino ficava sem poltronas, sem
+  teleporte e sem objetos de cena.
+- Agora: 3268/3326 resolvidos (234 malhas). Os 58 restantes são modelos de
+  outra zona ([pendência](pendencias.md)).
+
+## Cortina e tela de cinema (verificado, sem código novo)
+
+Com a energia ligada, `setupCurtains` toca `o_zombie_theatre_curtain` no
+`script_model` da cortina (`animscripted` → `model_anim_scripted`). A cortina
+abre, `curtains_move_done` chega, a tela desce (`movez`) e fica em frente ao
+palco. A luz do projetor (`clientnotify("sip")`) depende de CSC.
 
 ## Itens de HUD com `showDvar`/`hideDvar` — `835f199`
 
@@ -65,12 +95,16 @@ Liga movimento, armas, last stand e HUD de código do MW2 para o BO1 e usa
 - **Quick Revive solo**: funciona pelos scripts; foi testado comprando, caindo
   e levantando sozinho.
 
+> O seba portou a máquina de armas do BO1 com esses perks
+> (`movement_t5`). No merge, o Double Tap no `weapon_iw4` e o
+> `ModeRules::double_tap_rate` saem ([fork-seba](fork-seba.md)).
+
 ## Registro da fronteira — `23ab175`
 
 Os usos novos de crates `*_iw4` que esses commits trouxeram estão em
 `xtask/boundary/allow.txt`.
 
-## Menus do BO1 (pausa e opções)
+## Menus do BO1 (pausa e opções) — `95eb3cb`
 
 Ver [menus.md](menus.md) para o funcionamento.
 - ESC abre o `pausedmenu` do BO1 (RESUME CARNAGE, SETTINGS, RESTART LEVEL,
@@ -84,13 +118,13 @@ Ver [menus.md](menus.md) para o funcionamento.
   `game_t5/src/menu_expression.rs` (expressões), `game_api` (`ingame_menu`,
   `slider`), `session/src/match_apply.rs` (dvars de motor publicados).
 
-## FPS e sensibilidade numérica (adições do IW4L)
+## FPS e sensibilidade numérica (adições do IW4L) — `b5dc97f`
 
 `ui/src/fps.rs` (contador), `ui/src/game_options.rs` (linhas novas nos menus
 do BO1), `frame/src/settings.rs` (`show_fps`) e
 `console/src/user_settings.rs` (`sensitivity` e `cg_drawFPS`, nos dois sentidos).
 
-## Pausa no solo
+## Pausa no solo — `ceb03a2`
 
 `frame::MatchPause`, ligado por `hud/src/menus/mod.rs` quando o ESC abre um
 menu que o jogo manda pausar (`InGameMenu::Named { pauses_offline }`) e a
@@ -98,3 +132,10 @@ partida é offline; lido em `net/src/authority/runtime.rs::authority_should_tick
 e em `net/src/client/runtime.rs` (`predict_local_move`, `advance_cg_frame_clock`).
 Regra: `CL_PauseGame`, `SV_CheckPaused` e `CL_Frame` do BO1.
 
+## Verbo `score` para testes — `4251ecd`
+
+`score <pontos>` define os pontos do jogador local (exige cheats, como o
+`god`). Os pontos de dev do próprio script (`zombie_cheat`) ficam em blocos
+`/# #/`, que o compilador GSC descarta, como no jogo lançado. Arquivos:
+`console/src/debug_move.rs`, `sim/src/input.rs` (`ClientAction::DebugScore`),
+`sim/src/step.rs`, `net/src/transport/meta_wire.rs` (protocolo 115).

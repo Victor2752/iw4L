@@ -14,17 +14,28 @@ fork mudou e como ele foi pensado.
 | [`decompilacao.md`](decompilacao.md) | a decompilação do BO1 usada como fonte das regras: onde está, como ler, o que nunca trazer para o código |
 | [`implementado.md`](implementado.md) | cada coisa que o fork já fez: a regra do BO1, os arquivos e o commit |
 | [`menus.md`](menus.md) | como o motor de menus do BO1 funciona e o estado do menu de pausa |
+| [`brushes.md`](brushes.md) | portas, tábuas, entulho, tela e cabo: do mover no servidor até os vértices na GPU |
+| [`fork-seba.md`](fork-seba.md) | o que o fork do seba fez desde a `kino`, o que só nós temos e como integrar |
 | [`testes.md`](testes.md) | build, rodar a Kino por script, logs, screenshots, dumps e as checagens antes de commitar |
 | [`pendencias.md`](pendencias.md) | o que falta, em ordem de prioridade |
 
-## Estado em uma linha
+## Estado
 
-Dá para jogar a Kino solo: andar, atirar, comprar armas, portas e perks
-(Quick Revive, Speed Cola, Double Tap, Juggernog), zumbis entram pelas
-janelas, morrem com headshot, HUD de pontos e rounds, last stand, e o ESC abre
-o menu de pausa e as opções do próprio BO1 (com FPS e sensibilidade numérica
-adicionados pelo IW4L). O menu pausa o jogo no solo. Faltam o visual (vision set,
-olhos, portas girando), o movimento e as armas do BO1, a música e parte dos sons.
+Dá para jogar a Kino solo:
+
+- andar, atirar, comprar armas e perks (Quick Revive, Speed Cola, Double Tap,
+  Juggernog);
+- comprar portas, que giram e ficam abertas;
+- zumbis entram pelas janelas e morrem com headshot;
+- HUD de pontos e rounds, last stand;
+- ligar a energia: a cortina abre e a tela de cinema desce;
+- o mapa com seus modelos (poltronas, teleporte, objetos de cena);
+- ESC abre o menu de pausa e as opções do próprio BO1 (com FPS e
+  sensibilidade numérica do IW4L), e o menu pausa o jogo no solo.
+
+Faltam o visual do BO1 (vision set, efeitos de client script), o last stand
+do BO1, a música e parte dos sons. O movimento e as armas do BO1 já existem
+no fork do seba e devem vir num merge ([fork-seba](fork-seba.md)).
 
 ## Onde mais olhar
 

@@ -45,10 +45,34 @@ Para atualizar: `git -C /Users/victor2752/Projetos/bo1-zombies-decompiled pull`.
 | rede | `qcommon/sv_msg_write.cpp` (codificação de campos do snapshot) |
 | client script (CSC) | `clientscript/`, `cgame/cg_scr_sp_client.cpp` |
 
-## Método que funcionou
+## Fluxo de trabalho
 
-1. Achar a função pelo nome do dvar, do owner draw ou do menu (`grep -rn`).
-2. Ler a regra e os valores padrão (`_Dvar_Register*`).
-3. Conferir nos scripts GSC da Kino que valores os scripts passam
-   ([dump em `testes.md`](testes.md#dump-dos-scripts-gsc)).
-4. Implementar no crate do jogo, rodar a Kino e conferir com screenshot e log.
+A decompilação é a base, e o teste só confirma. Testar no escuro gasta tempo:
+nas portas foram várias rodadas de screenshot para ver um giro de 1 s,
+enquanto `R_AddBModelSurfacesCamera` e o `door_activate` do GSC já diziam o
+que esperar. Ler primeiro também acha bugs que nenhum teste mostra: os
+modelos estáticos da Kino sumiam porque a struct `GfxStaticModelDrawInst` tem
+uma entrada por modelo, e o leitor pulava algumas.
+
+1. **Ler a regra.** Ache a função pelo nome do dvar, owner draw, menu, builtin
+   ou struct (`grep -rn`). Leia a regra, os valores padrão (`_Dvar_Register*`)
+   e a struct (`r_gfx.h`, `r_bsp.h`, `ui_shared.h`…).
+2. **Ler o script.** Confira no GSC da Kino o que o script chama e com que
+   valores ([dump](testes.md#dump-dos-scripts-gsc)).
+3. **Ler o log da carga.** Antes de rodar o jogo, procure no relatório da
+   carga números que não batem: `world report: …`, `refused`, `unresolved`,
+   `gap`. Um "0/3326" ou um "decoded X but count is Y" já mostra o defeito.
+4. **Implementar** no crate do jogo (ou no leitor do formato), citando a
+   função do BO1 no comentário.
+5. **Confirmar com um teste curto**: uma rodada, com `score`, `move` e
+   `god` para chegar direto ao ponto, e um ou dois screenshots. Para coisas
+   rápidas (um giro, uma animação), um log temporário vale mais que fotos
+   (cada screenshot trava a fila do console por cerca de 1 s).
+
+## Mapa extra
+
+| assunto | onde |
+|---|---|
+| modelos estáticos | `gfx_d3d/r_bsp.h` (`GfxStaticModelDrawInst`, `GfxWorldDpvsStatic`), `gfx_d3d/r_add_staticmodel.h` |
+| brush models | `gfx_d3d/r_scene.cpp` (`R_AddBModelSurfacesCamera`), `gfx_d3d/r_dpvs.cpp` |
+| pausa | `ui_mp/ui_main_mp.cpp` e `ui/ui_main.cpp` (`UI_SetActiveMenu`, que chama `CL_PauseGame`), `client_mp/cl_main_mp.h` |

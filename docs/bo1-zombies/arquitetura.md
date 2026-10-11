@@ -42,6 +42,10 @@ Cada item desse wrapper deve virar regra do BO1, lida da
 [decompilação](decompilacao.md). Quando virar, a resposta sai do wrapper e
 passa a vir de `game_t5`.
 
+O seba já trocou movimento e armas pelas regras do BO1 (`movement_t5`,
+`MovementRules::Game`, `WeaponRules::Game`). Depois do merge
+([fork-seba](fork-seba.md)), esses dois saem do wrapper.
+
 ## Regra de ouro: regra do jogo certo
 
 O que fizemos com fontes é o modelo para o resto: a regra fica no crate do
@@ -65,6 +69,10 @@ partida, e não em dvars de script (o cliente não tem a VM de script).
    `WeaponCmd`; `script_player.rs` faz perks, vida e last stand.
 4. **Cliente**: `hud/src/t5_hud.rs` desenha os menus de HUD do BO1;
    `hud_elems.rs` desenha os textos de script; `render_frontend` desenha o mundo.
+   - Modelos estáticos do mapa: `asset_world/src/model_mesh.rs::build_t5_static_model_instances`
+     lê as instâncias e `assets/src/lane/helpers.rs::link_model_placements`
+     liga cada uma a uma malha.
+   - Brush models (portas, tábuas, tela): ver [brushes.md](brushes.md).
 
 ## Dívida de fronteira
 
