@@ -1,7 +1,7 @@
 use crate::EquipmentRuntimeFacts;
 use std::collections::BTreeMap;
 use std::sync::Arc;
-use weapon_iw4::WeaponCombatFacts;
+use weapon_iw4::{HITLOC_COUNT, WeaponCombatFacts};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct WeaponSetup {
@@ -21,8 +21,10 @@ pub struct WeaponScriptSounds {
 }
 
 pub struct SimWeaponRow {
+    pub unlock_requirement: Result<gamemode_iw4::progression::UnlockRequirement, String>,
     pub wire_id: u32,
     pub scales: (f32, f32, f32),
+    pub game_weapon: Option<Arc<game_api::movement::GameWeapon>>,
     pub execution: Result<WeaponCombatFacts, String>,
     pub transition_group: u32,
     pub camouflage_slots: Vec<u8>,
@@ -39,7 +41,11 @@ pub struct SimWeaponRow {
 
 #[derive(Debug)]
 pub struct SimWeaponContent {
+    pub(crate) rank_progression: Option<gamemode_iw4::progression::RankProgression>,
+    pub(crate) unlock_requirements:
+        Vec<Result<gamemode_iw4::progression::UnlockRequirement, String>>,
     pub(crate) weapon_def_scales: Vec<(f32, f32, f32)>,
+    pub(crate) weapon_game: Vec<Option<Arc<game_api::movement::GameWeapon>>>,
     pub(crate) weapon_combat: Vec<WeaponCombatFacts>,
     pub(crate) weapon_runnable: Vec<bool>,
     execution_refusals: Vec<Option<String>>,
@@ -48,6 +54,8 @@ pub struct SimWeaponContent {
     pub(crate) bullet_pen: Vec<weapon_iw4::BulletPenFacts>,
     pub(crate) pen_table: weapon_iw4::PenetrationDepthTable,
     pub(crate) pen_table_loaded: bool,
+    /// The game's damage multipliers by hit location.
+    pub(crate) hit_locations: Option<[f32; HITLOC_COUNT]>,
     pub(crate) weapon_script_names: Arc<[String]>,
     pub(crate) weapon_script_aliases: BTreeMap<String, u32>,
     pub(crate) weapon_setups: Arc<[Option<WeaponSetup>]>,
@@ -64,12 +72,16 @@ pub enum SimWeaponContentRefusal {
     MissingSentinel,
     NonDenseRows,
     UnknownAlias,
+    InvalidProgression,
 }
 
 impl SimWeaponContent {
     pub(crate) fn bootstrap() -> Self {
         Self {
+            rank_progression: Default::default(),
+            unlock_requirements: Default::default(),
             weapon_def_scales: Default::default(),
+            weapon_game: Default::default(),
             weapon_combat: Default::default(),
             weapon_runnable: Default::default(),
             execution_refusals: Default::default(),
@@ -78,6 +90,7 @@ impl SimWeaponContent {
             bullet_pen: Default::default(),
             pen_table: Default::default(),
             pen_table_loaded: Default::default(),
+            hit_locations: Default::default(),
             weapon_script_names: Default::default(),
             weapon_script_aliases: Default::default(),
             weapon_setups: Default::default(),
@@ -95,10 +108,20 @@ impl SimWeaponContent {
         aliases: impl IntoIterator<Item = (String, u32)>,
         pen_table: weapon_iw4::PenetrationDepthTable,
         pen_table_loaded: bool,
+        hit_locations: Option<[f32; HITLOC_COUNT]>,
+        rank_progression: Option<gamemode_iw4::progression::RankProgression>,
     ) -> Result<Arc<Self>, SimWeaponContentRefusal> {
+        if rank_progression
+            .as_ref()
+            .is_some_and(|ranks| ranks.rank(0).is_none())
+        {
+            return Err(SimWeaponContentRefusal::InvalidProgression);
+        }
         let mut result = Self {
+            rank_progression,
             pen_table,
             pen_table_loaded,
+            hit_locations,
             ..Self::bootstrap()
         };
         let mut names = Vec::new();
@@ -107,7 +130,9 @@ impl SimWeaponContent {
             if row.wire_id as usize != names.len() {
                 return Err(SimWeaponContentRefusal::NonDenseRows);
             }
+            result.unlock_requirements.push(row.unlock_requirement);
             result.weapon_def_scales.push(row.scales);
+            result.weapon_game.push(row.game_weapon);
             let (combat, refusal) = match row.execution {
                 Ok(combat) if row.wire_id != 0 => (combat, None),
                 Ok(_) => (WeaponCombatFacts::none(), Some("unarmed".to_owned())),

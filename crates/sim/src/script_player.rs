@@ -16,6 +16,23 @@ pub(crate) fn spectator_lifecycle(team: i32) -> ClientLifecycle {
     }
 }
 
+fn spawn_command_angles(world: &mut FrameWorld, id: ClientId) -> [i32; 3] {
+    world
+        .ecs()
+        .get_resource::<crate::step::StepRequest>()
+        .and_then(|request| {
+            request
+                .input
+                .cmds
+                .iter()
+                .rev()
+                .find(|command| command.client == id)
+                .map(|command| command.command.angles)
+        })
+        .or_else(|| world.old_cmd_angles(id))
+        .unwrap_or([0; 3])
+}
+
 pub(crate) fn spawn(
     world: &mut FrameWorld,
     tick: Tick,
@@ -49,9 +66,8 @@ pub(crate) fn spawn(
         ps.max_health = max;
         ps.health = max;
     }
-    if let Some(cmd) = world.old_cmd_angles(id) {
-        ps.delta_angles = std::array::from_fn(|axis| angles[axis] - cmd[axis] as f32 * SHORT2ANGLE);
-    }
+    let cmd = spawn_command_angles(world, id);
+    ps.delta_angles = std::array::from_fn(|axis| angles[axis] - cmd[axis] as f32 * SHORT2ANGLE);
     let prev_teleport = world
         .player(id)
         .map(|p| p.e_flags & playerstate_iw4::eflags::TELEPORT)
@@ -77,6 +93,11 @@ pub(crate) fn spawn(
             )
         }
     };
+    if let Some(movement) = crate::game_move::rules(world) {
+        let mut player = ps.move_player(id.0 as i32, false);
+        movement.spawn(&mut player);
+        ps.store_move_player(&player);
+    }
     *world.ensure_player(id) = ps;
     diag::info!(
         Sim,
@@ -456,10 +477,13 @@ pub(crate) fn move_to_forced_spawn(world: &mut FrameWorld, id: ClientId, pick: c
     let Some((origin, angles)) = forced_point(world, id, pick) else {
         return;
     };
+    let cmd_angles = spawn_command_angles(world, id);
     world.unlink_player_area(id);
     world.set_origin(id, origin);
     world.set_viewangles(id, angles);
     if let Some(ps) = world.player_mut(id) {
+        ps.delta_angles =
+            std::array::from_fn(|axis| angles[axis] - cmd_angles[axis] as f32 * SHORT2ANGLE);
         ps.velocity = [0.0; 3];
         ps.health = ps.max_health;
         ps.e_flags ^= playerstate_iw4::eflags::TELEPORT;
@@ -501,12 +525,26 @@ pub(crate) fn give_weapon(
     akimbo: bool,
 ) -> Result<(), String> {
     living(world, id)?;
-    if world.weapon_is_melee_only(weapon) {
+    let game_rules = crate::game_move::game_weapons(world);
+    if world.weapon_is_melee_only(weapon) && !game_rules {
         return Ok(());
     }
-    let facts = world
-        .combat_facts_for(weapon)
-        .ok_or_else(|| format!("weapon {} has no combat data", weapon_name(world, weapon)))?;
+    let Some(facts) = world.combat_facts_for(weapon) else {
+        // The game's own rules hold a weapon by its definition; a melee
+        // weapon takes a slot and becomes the melee weapon.
+        if game_rules && world.content().game_weapon(weapon).is_some() {
+            let ps = world.player_mut(id).expect("checked above");
+            inventory_add_weapon(ps, weapon, false);
+            if !ps.weapons.contains(&(weapon as i32)) {
+                return Err("the player's inventory is full".into());
+            }
+            return Ok(());
+        }
+        return Err(format!(
+            "weapon {} has no combat data",
+            weapon_name(world, weapon)
+        ));
+    };
     let akimbo =
         akimbo || facts.dual_wield || gsc_give_weapon_is_akimbo(world.weapon_script_name(weapon));
     let offhand = world
@@ -770,11 +808,13 @@ fn perk_bits(name: &str) -> ([u32; 2], u32) {
         "specialty_fastmantle" => playerstate_iw4::PERK_FASTMANTLE,
         "specialty_quickdraw" => playerstate_iw4::PERK_QUICKDRAW,
         "specialty_holdbreath" => playerstate_iw4::PERK_HOLDBREATH,
+        "specialty_selectivehearing" => playerstate_iw4::PERK_SELECTIVEHEARING,
         _ => 0,
     };
     let perk1 = match name {
         "specialty_spygame" => playerstate_iw4::PERK1_SPYGAME,
-        "specialty_rof" => weapon_iw4::PERK1_RATEOFFIRE,
+        "specialty_extendedmelee" => playerstate_iw4::PERK1_EXTENDEDMELEE,
+        "specialty_fastsprintrecovery" => playerstate_iw4::PERK1_FASTSPRINTRECOVERY,
         _ => 0,
     };
     let e_flags = match name {
@@ -787,10 +827,13 @@ fn perk_bits(name: &str) -> ([u32; 2], u32) {
 /// Sets Modern Warfare 2's perk bits, which only its movement and weapon
 /// rules read; a game without those rules gets none.
 pub(crate) fn set_perk(world: &mut FrameWorld, id: ClientId, name: &str, on: bool) {
-    if let Some(game_api::Rule::Unknown(gap)) = world.bootstrap_ref().mode.map(|mode| mode.weapons)
-    {
-        world.report_game_gap(gap);
-        return;
+    match world.bootstrap_ref().mode.map(|mode| mode.weapons) {
+        Some(game_api::Rule::Unknown(gap)) => {
+            world.report_game_gap(gap);
+            return;
+        }
+        Some(game_api::Rule::Known(game_api::WeaponRules::Game)) => return,
+        _ => {}
     }
     let (perks, e_flags) = perk_bits(name);
     if let Some(ps) = world.player_mut(id) {

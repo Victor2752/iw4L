@@ -65,9 +65,14 @@ pub(crate) fn route_debug_feature_commands(
         match cmd.name.as_str() {
             "bot" => match parse_bot_args(&cmd.args) {
                 Err(msg) => echo(msg, console, line),
-                Ok(BotVerb::Hold(_) | BotVerb::Tp(_) | BotVerb::Fire(_) | BotVerb::Give { .. })
-                    if authority.as_ref().is_some_and(|a| !a.0.cheats_enabled()) =>
-                {
+                Ok(
+                    BotVerb::Hold(_)
+                    | BotVerb::Tp(_)
+                    | BotVerb::Fire(_)
+                    | BotVerb::Melee(_)
+                    | BotVerb::Frag(_)
+                    | BotVerb::Give { .. },
+                ) if authority.as_ref().is_some_and(|a| !a.0.cheats_enabled()) => {
                     echo("bot: cheats are off".into(), console, line);
                 }
                 Ok(BotVerb::Add(n)) => {
@@ -93,6 +98,14 @@ pub(crate) fn route_debug_feature_commands(
                 Ok(BotVerb::Fire(target)) => {
                     bot_fire.push(target);
                     echo("bot: queued fire".into(), console, line);
+                }
+                Ok(BotVerb::Melee(target)) => {
+                    bot_fire.push_melee(target);
+                    echo("bot: queued melee".into(), console, line);
+                }
+                Ok(BotVerb::Frag(target)) => {
+                    bot_fire.push_frag(target);
+                    echo("bot: queued frag".into(), console, line);
                 }
                 Ok(BotVerb::Give {
                     id,
@@ -226,6 +239,10 @@ pub fn register_feature_commands(registry: &mut crate::ConsoleRegistry, maps: &[
             "clip — save last ≤45s available to this client as iw4l-artifacts/clips/<ULID>/{clip.iw4ldemo, dump.txt} (always-on ring)",
         ),
         (
+            "round_restart",
+            "round_restart — restart the host's script round and retain match content (needs cheats)",
+        ),
+        (
             "map_restart",
             "map_restart — a new match on the current map, on what the last one prepared",
         ),
@@ -290,7 +307,7 @@ pub fn register_feature_commands(registry: &mut crate::ConsoleRegistry, maps: &[
         ),
         (
             "bot",
-            "bot add [N] | dummy [N] | hold [on|off] | give <id> <weapon> [att...] [camo=<name>] | fire [all|<id>] | tp all|<id> above <h> | tp all|<id> <x> <y> <z>",
+            "bot add [N] | dummy [N] | hold [on|off] | give <id> <weapon> [att...] [camo=<name>] | fire|melee|frag [all|<id>] | melee [all|<id>] | tp all|<id> above <h> | tp all|<id> <x> <y> <z>",
         ),
         (
             "menu",
@@ -303,7 +320,7 @@ pub fn register_feature_commands(registry: &mut crate::ConsoleRegistry, maps: &[
         ),
         (
             "wait",
-            "wait [seconds|<n>t|world|spawn|torn|ambient] — pause the console FIFO; <n>t = n authority ticks; world = scene.spawned; spawn = AppScreen::InGame; torn = HasWorld false and scene.spawned false (hold after MatchTornDown); ambient = MapAmbientBooted (overlay finished, CreateFX sources published)",
+            "wait [seconds|<n>t|world|spawn|torn|ambient|progression] — pause the console FIFO; <n>t = n authority ticks; world = scene.spawned; spawn = AppScreen::InGame; torn = match scope absent and scene.spawned false (after match retirement); ambient = MapAmbientBooted; progression = native account content ready",
         ),
     ] {
         if registry.resolve(name).is_none() {
@@ -325,6 +342,8 @@ pub(crate) enum BotVerb {
         attachments: Vec<String>,
     },
     Fire(BotTpTarget),
+    Melee(BotTpTarget),
+    Frag(BotTpTarget),
     Tp(BotTpRequest),
 }
 
@@ -373,15 +392,20 @@ pub(crate) fn parse_bot_args(args: &[String]) -> Result<BotVerb, String> {
                 attachments: args[3..].to_vec(),
             })
         }
-        "fire" => match args.get(1).map(String::as_str) {
-            None | Some("all") => Ok(BotVerb::Fire(BotTpTarget::All)),
-            Some(s) => {
-                let id = s
-                    .parse::<u32>()
-                    .map_err(|_| "usage: bot fire [all|<id>]".to_owned())?;
-                Ok(BotVerb::Fire(BotTpTarget::Id(ClientId(id))))
-            }
-        },
+        "fire" | "melee" | "frag" => {
+            let target = match args.get(1).map(String::as_str) {
+                None | Some("all") => BotTpTarget::All,
+                Some(s) => BotTpTarget::Id(ClientId(
+                    s.parse::<u32>()
+                        .map_err(|_| format!("usage: bot {sub} [all|<id>]"))?,
+                )),
+            };
+            Ok(match sub {
+                "fire" => BotVerb::Fire(target),
+                "melee" => BotVerb::Melee(target),
+                _ => BotVerb::Frag(target),
+            })
+        }
         "tp" => parse_bot_tp(&args[1..]),
         _ => Err(BOT_USAGE.into()),
     }

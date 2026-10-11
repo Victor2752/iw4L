@@ -345,6 +345,9 @@ impl WeaponBuild {
                     merge_combat_fx(&mut existing.combat_fx, &entry.combat_fx);
                     merge_combat_slots(&mut existing.combat_slots, &entry.combat_slots);
                     merge_body_facts(&mut existing.facts, entry.facts);
+                    if existing.game_bytes.is_none() {
+                        existing.game_bytes = entry.game_bytes;
+                    }
                 }
             }
         }
@@ -369,6 +372,7 @@ impl WeaponBuild {
                 alternate_index: 0,
                 namespace: entry.namespace,
                 facts: entry.facts,
+                game_bytes: entry.game_bytes,
                 semantics: None,
                 combat: None,
                 fpv: None,
@@ -478,6 +482,8 @@ impl WeaponBuild {
             world_catalog_identity: 0,
             fpv_catalog_identity: 0,
             family_tables: Arc::default(),
+            shared_ranks: Default::default(),
+            shared_icons: Default::default(),
             iw5_attachments,
             configurations: HashMap::new(),
             by_name: index_of,

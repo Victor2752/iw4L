@@ -92,6 +92,11 @@ impl LoadedWorld {
     }
 }
 
+/// A game's bullet penetration depths, by penetration and surface type.
+pub type PenTable = weapon_iw4::PenetrationDepthTable;
+/// A game's damage multipliers, by hit location.
+pub type LochitTable = [f32; weapon_iw4::HITLOC_COUNT];
+
 #[derive(Default)]
 pub struct CommonCensus {
     pub ui_images: Vec<(String, asset_material::material_images::ZoneUiImage)>,
@@ -118,9 +123,9 @@ pub struct CommonCensus {
     pub light_defs: Vec<asset_world::CapturedLightDef>,
     pub report: Vec<String>,
 
-    pub pen_table: weapon_iw4::PenetrationDepthTable,
+    pub pen_table: PenTable,
     pub pen_table_loaded: bool,
-    pub lochit_table: Option<[f32; weapon_iw4::HITLOC_COUNT]>,
+    pub lochit_table: Option<LochitTable>,
 
     pub xmodel_walk: crate::PreparedXModelWalkCensus,
 
@@ -302,6 +307,9 @@ impl ZoneLane for UnreadLane {
             for (name, bytes) in scripts.modules {
                 world.scripts.capture_compiled(&name, bytes);
             }
+            for (name, text) in scripts.configs {
+                world.scripts.capture_config(&name, text);
+            }
             world.report.push(format!("{zone}: {count} script modules"));
             world.report.extend(scripts.report);
         }
@@ -309,6 +317,22 @@ impl ZoneLane for UnreadLane {
             "{map}: {} script modules after its zones",
             world.scripts.len()
         ));
+        let entities = (format.entities)(&image.bytes);
+        world.report.extend(entities.report);
+        if let Some(text) = entities.text {
+            world.scripts.set_entities(text);
+        }
+        let drawn = (format.world)(&image.bytes);
+        world.report.extend(drawn.report);
+        if let Some(geometry) = drawn.geometry {
+            world.world.draw = Some(asset_world::world_t7::build_world_draw(&geometry));
+        }
+        if let Some(collision) = drawn.collision {
+            match asset_world::world_t7::build_clip_collision(&collision) {
+                Ok(clip) => world.collision = Some(clip),
+                Err(error) => world.report.push(format!("t7 collision: {error}")),
+            }
+        }
         world
     }
 

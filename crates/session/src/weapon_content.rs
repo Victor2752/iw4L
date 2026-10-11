@@ -25,10 +25,12 @@ pub(crate) fn compile(
     aliases: Vec<(String, u32)>,
     pen_table: weapon_iw4::PenetrationDepthTable,
     pen_table_loaded: bool,
+    rank_progression: bool,
 ) -> Result<PreparedSimWeapons, sim::SimWeaponContentRefusal> {
     let rules = WeaponHostRules::default();
     let mut refused = Vec::new();
     let groups = weapons.configuration_transition_groups();
+    let game_weapons = game_weapons(weapons);
     let rows = weapons.published_weapons().map(|weapon| {
         let id = weapon.wire_id();
         let execution = weapons
@@ -61,8 +63,10 @@ pub(crate) fn compile(
             })
             .unwrap_or(sim::WeaponScriptSounds::default());
         sim::SimWeaponRow {
+            unlock_requirement: weapons.weapon_unlock_requirement(id).map_err(str::to_owned),
             wire_id: id,
             scales: weapon.movement_scales(),
+            game_weapon: game_weapons[id as usize].clone(),
             execution,
             transition_group: groups[id as usize],
             camouflage_slots: std::iter::once(0)
@@ -91,7 +95,18 @@ pub(crate) fn compile(
                 .unwrap_or(sim::EquipmentRuntimeFacts::default()),
         }
     });
-    let content = sim::SimWeaponContent::compile(rows, aliases, pen_table, pen_table_loaded)?;
+    let ranks = rank_progression
+        .then(|| weapons.rank_progression())
+        .transpose()
+        .map_err(|_| sim::SimWeaponContentRefusal::InvalidProgression)?;
+    let content = sim::SimWeaponContent::compile(
+        rows,
+        aliases,
+        pen_table,
+        pen_table_loaded,
+        global_location,
+        ranks,
+    )?;
     if !refused.is_empty() {
         diag::info!(
             Sim,
@@ -104,6 +119,44 @@ pub(crate) fn compile(
         revision: weapons.revision(),
         content,
     })
+}
+
+/// The weapons a game runs its own rules over, with what its loader
+/// resolves: weapons sharing an ammo or clip name share the first one's number.
+fn game_weapons(weapons: &WeaponRegistry) -> Vec<Option<Arc<game_api::movement::GameWeapon>>> {
+    let mut ammo = std::collections::HashMap::new();
+    let mut clip = std::collections::HashMap::new();
+    let mut out = Vec::new();
+    for weapon in weapons.published_weapons() {
+        let id = weapon.wire_id() as usize;
+        out.resize(out.len().max(id + 1), None);
+        let Some(bytes) = weapon.game_bytes() else {
+            continue;
+        };
+        let ammo_index = *ammo.entry(bytes.ammo_name.clone()).or_insert(id as i32);
+        let clip_index = *clip.entry(bytes.clip_name.clone()).or_insert(id as i32);
+        out[id] = Some(Arc::new(game_api::movement::GameWeapon {
+            def: bytes.def.clone(),
+            variant: bytes.variant.clone(),
+            ammo_index,
+            clip_index,
+            alt_weapon: weapon.alternate_wire_id(),
+            dual_wield_weapon: weapon.dual_wield_wire_id(),
+            named_anims: bytes.named_anims,
+            name: weapons.name_of(id as u32).to_owned(),
+            location_damage: bytes.location_damage.map(|table| table.into()),
+            parallel_bounce: bytes.parallel_bounce.map(|table| table.into()),
+            perpendicular_bounce: bytes.perpendicular_bounce.map(|table| table.into()),
+        }));
+    }
+    // The game's weapon 0 is its weapon named none.
+    if out.first().is_some_and(Option::is_none)
+        && let Some(none) = (1..out.len() as u32)
+            .find(|&id| out[id as usize].is_some() && weapons.name_of(id) == "none")
+    {
+        out[0] = out[none as usize].clone();
+    }
+    out
 }
 
 fn compile_combat(

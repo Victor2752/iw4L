@@ -1,7 +1,7 @@
 mod catalog;
 mod startup;
 
-use game_api::{HudRules, ModeRules, Rule, ScriptProgram, ScriptRequest};
+use game_api::{HudRules, ModeRules, Rule, ScriptProgram, ScriptRequest, WeaponRules};
 
 pub struct Iw4;
 
@@ -18,6 +18,9 @@ impl game_api::GameScripts for Iw4 {
             catalog: gsc::Catalog::from_list(asset_core::FamilyId::Iw4, catalog::IW4),
             roots: startup.roots,
             entries: startup.entries,
+            built: None,
+            settings: Vec::new(),
+            key_types: Vec::new(),
         })
     }
 
@@ -34,9 +37,8 @@ impl game_api::GameScripts for Iw4 {
 const MODE: ModeRules = ModeRules {
     play_starts_on: "prematch_over",
     every_player_downs: Rule::Known(false),
-    movement: Rule::Known(()),
-    weapons: Rule::Known(()),
-    double_tap_rate: None,
+    movement: Rule::Known(game_api::MovementRules::Simulation),
+    weapons: Rule::Known(WeaponRules::Simulation),
     spawn_at_default_health: false,
     connect_team: None,
     scripts_spawn_players: false,

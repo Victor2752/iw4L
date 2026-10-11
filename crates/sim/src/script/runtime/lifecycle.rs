@@ -5,16 +5,20 @@ use std::sync::Arc;
 
 use crate::script::host;
 use crate::script::{
-    Fault, LevelData, Location, NativeRegistry, Program, Runtime, Thread, ThreadState, Value,
+    Fault, LevelData, Location, NativeRegistry, Program, RoundScript, Thread, ThreadState, Value,
 };
 
 use super::{INSTRUCTION_BUDGET, execute, new_thread};
 
 /// Runs during install, before the map's `script_struct` blocks are appended to `level.struct`.
 pub const STRUCT_INIT: &str = "codescripts/struct::initstructs";
+/// Black Ops 3's engine hands each map `script_struct` to this function
+/// (`struct::CreateStruct`, hash 0x4c6908e2; its executable looks the hash up).
+pub const CREATE_STRUCT: &str = "scripts/codescripts/struct::#4c6908e2";
 
 pub(crate) fn copy_state(source: &World, target: &mut World) {
-    target.insert_resource(source.resource::<Runtime>().clone());
+    target.insert_resource(source.resource::<RoundScript>().clone());
+    target.insert_resource(source.resource::<crate::script::MatchScript>().clone());
     target.insert_resource(source.resource::<host::mechanics::Mechanics>().clone());
     target.insert_resource(source.resource::<NativeRegistry>().clone());
     for entity in source.iter_entities() {
@@ -24,7 +28,7 @@ pub(crate) fn copy_state(source: &World, target: &mut World) {
     }
 }
 
-pub(crate) fn reset(world: &mut World) {
+pub(crate) fn reset_round(world: &mut World) {
     let ids: Vec<_> = world
         .query_filtered::<Entity, bevy_ecs::query::With<Thread>>()
         .iter(world)
@@ -32,8 +36,14 @@ pub(crate) fn reset(world: &mut World) {
     for id in ids {
         world.despawn(id);
     }
-    world.insert_resource(Runtime::default());
+    let round = RoundScript::new(world.resource::<crate::script::MatchScript>());
+    world.insert_resource(round);
     world.insert_resource(host::mechanics::Mechanics::default());
+}
+
+pub(crate) fn reset(world: &mut World) {
+    world.insert_resource(crate::script::MatchScript::default());
+    reset_round(world);
 }
 
 pub(crate) fn install(
@@ -67,7 +77,7 @@ pub(crate) fn install_level(
         line: 0,
         column: 0,
     };
-    if world.resource::<Runtime>().program.is_some() {
+    if world.resource::<RoundScript>().program.is_some() {
         return Err(Fault::at(
             &location,
             "program already installed; reset the match before replacing scripts",
@@ -98,7 +108,7 @@ pub(crate) fn install_level(
         .iter()
         .map(|b| natives.get(b.namespace, b.name).unwrap())
         .collect();
-    let mut runtime = world.resource_mut::<Runtime>();
+    let mut runtime = world.resource_mut::<RoundScript>();
     runtime.program = Some(program.clone());
     runtime.natives = bound;
     runtime.objects.insert(0, BTreeMap::new());
@@ -113,10 +123,10 @@ pub(crate) fn install_level(
     if let Some(&function) = program.names.get(STRUCT_INIT) {
         let mut thread = new_thread(world, &program, function, Value::Object(0), Vec::new())
             .map_err(|m| Fault::at(&location, m))?;
-        world.resource_mut::<Runtime>().budget = INSTRUCTION_BUDGET;
+        world.resource_mut::<RoundScript>().budget = INSTRUCTION_BUDGET;
         thread.state = ThreadState::Runnable;
         execute(world, &program, &mut thread, 0);
-        let mut runtime = world.resource_mut::<Runtime>();
+        let mut runtime = world.resource_mut::<RoundScript>();
         if let Some(fault) = runtime.fault.clone() {
             return Err(fault);
         }
@@ -127,11 +137,37 @@ pub(crate) fn install_level(
     }
     let entities = plan.entities.clone();
     let keys = plan.keys.clone();
-    world.resource_mut::<Runtime>().restart = Some(Arc::new(plan));
-    world
-        .resource_mut::<Runtime>()
+    world.resource_mut::<RoundScript>().restart = Some(Arc::new(plan));
+    let handed = world
+        .resource_mut::<RoundScript>()
         .spawn_map_entities(&entities, &keys)
         .map_err(|m| Fault::at(&location, m))?;
+    if let Some(&function) = program.names.get(CREATE_STRUCT) {
+        for id in handed {
+            let mut thread = new_thread(
+                world,
+                &program,
+                function,
+                Value::Object(0),
+                vec![Value::Object(id)],
+            )
+            .map_err(|m| Fault::at(&location, m))?;
+            world.resource_mut::<RoundScript>().budget = INSTRUCTION_BUDGET;
+            thread.state = ThreadState::Runnable;
+            execute(world, &program, &mut thread, 0);
+            let runtime = world.resource::<RoundScript>();
+            if let Some(fault) = runtime.fault.clone() {
+                return Err(fault);
+            }
+            if thread.state != ThreadState::Complete {
+                return Err(Fault::at(
+                    &location,
+                    format!("{CREATE_STRUCT} must not wait"),
+                ));
+            }
+        }
+        world.resource_mut::<RoundScript>().started = false;
+    }
     host::presence::initialize_map_models(world);
     Ok(())
 }

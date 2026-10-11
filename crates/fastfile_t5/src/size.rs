@@ -519,6 +519,9 @@ pub const WEAPON_BOLT_ACTION_OFF: usize = 0x54f;
 
 pub const WEAPON_VARIANT_CLIP_SIZE_OFF: usize = 0x20;
 
+pub const WEAPON_VARIANT_AMMO_NAME_OFF: usize = 0x40;
+pub const WEAPON_VARIANT_CLIP_NAME_OFF: usize = 0x48;
+
 pub const WEAPON_VARIANT_RELOAD_TIME_OFF: usize = 0x24;
 pub const WEAPON_VARIANT_RELOAD_EMPTY_TIME_OFF: usize = 0x28;
 pub const WEAPON_VARIANT_RELOAD_QUICK_TIME_OFF: usize = 0x2c;
@@ -710,8 +713,6 @@ pub const WEAPON_DEF_RELOAD_START_ADD_OFF: usize = 0x588;
 pub const WEAPON_DEF_MIN_DAMAGE_OFF: usize = 0x7a0;
 pub const WEAPON_DEF_MAX_DAMAGE_RANGE_OFF: usize = 0x7a8;
 pub const WEAPON_DEF_MIN_DAMAGE_RANGE_OFF: usize = 0x7ac;
-/// `float *locationDamageMultipliers`, one per hit location.
-pub const WEAPON_DEF_LOCATION_DAMAGE_OFF: usize = 0x7bc;
 pub const WEAPON_DEF_ADS_GUN_KICK_REDUCED_BULLETS_OFF: usize = 0x688;
 pub const WEAPON_DEF_ADS_GUN_KICK_REDUCED_PERCENT_OFF: usize = 0x68c;
 pub const WEAPON_DEF_ADS_GUN_KICK_PITCH_MIN_OFF: usize = 0x690;
@@ -795,6 +796,7 @@ pub const WEAPON_BOUNCE_SOUND_COUNT: usize = 31;
 
 pub const WEAPON_BOUNCE_COEFFICIENT_COUNT: usize = SURF_TYPE_NUM;
 pub const WEAPON_LOCATION_DAMAGE_COUNT: usize = 19;
+pub const WEAPON_DEF_LOCATION_DAMAGE_OFF: usize = 0x7bc;
 pub const WEAPON_NOTETRACK_COUNT: usize = 20;
 
 pub const MENU_LIST: usize = 12;

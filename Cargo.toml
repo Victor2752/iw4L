@@ -47,6 +47,7 @@ members = [
     "crates/game_t7",
     "crates/gamemode_iw4",
     "crates/gsc",
+    "crates/gsc_t6",
     "crates/gsc_t7",
     "crates/menu_expr",
     "crates/hud",
@@ -59,6 +60,7 @@ members = [
     "crates/master_protocol",
     "crates/math_iw4",
     "crates/movement_iw4",
+    "crates/movement_t5",
     "crates/net",
     "crates/iw4l-master",
     "crates/perf",
@@ -89,7 +91,9 @@ edition = "2024"
 license = "Apache-2.0"
 
 [workspace.dependencies]
-bevy = { version = "0.19", default-features = false, features = [
+bevy = { version = "0.20", default-features = false, features = [
+    "bevy_state",
+    "debug",
     "bevy_window",
     "bevy_winit",
     "bevy_ui",
@@ -110,7 +114,7 @@ bevy = { version = "0.19", default-features = false, features = [
     "bevy_ui_widgets",
     "ui_picking",
 ] }
-bevy_ecs = "0.19"
+bevy_ecs = "0.20"
 miniz_oxide = "0.8"
 lzokay-native = "0.1"
 bcdec_rs = "0.2"
@@ -160,6 +164,7 @@ game_t5 = { path = "crates/game_t5" }
 game_t6 = { path = "crates/game_t6" }
 game_t7 = { path = "crates/game_t7" }
 gsc = { path = "crates/gsc" }
+gsc_t6 = { path = "crates/gsc_t6" }
 gsc_t7 = { path = "crates/gsc_t7" }
 menu_expr = { path = "crates/menu_expr" }
 hud = { path = "crates/hud" }
@@ -173,6 +178,7 @@ marks_iw4 = { path = "crates/marks_iw4" }
 math_iw4 = { path = "crates/math_iw4" }
 master_protocol = { path = "crates/master_protocol" }
 movement_iw4 = { path = "crates/movement_iw4" }
+movement_t5 = { path = "crates/movement_t5" }
 net = { path = "crates/net" }
 perf = { path = "crates/perf" }
 playerstate_iw4 = { path = "crates/playerstate_iw4" }
@@ -192,7 +198,7 @@ trace_iw4 = { path = "crates/trace_iw4" }
 ui = { path = "crates/ui" }
 weapon_iw4 = { path = "crates/weapon_iw4" }
 xmodel_runtime = { path = "crates/xmodel_runtime" }
-glam = "0.32.1"
+glam = "0.33.2"
 
 # Transcribing a retail constant at full precision is the requirement, not a
 # style slip. `clippy::excessive_precision` fired on

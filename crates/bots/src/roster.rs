@@ -5,6 +5,8 @@ use crate::controller::HostController;
 
 pub const MAX_HOST_BOTS: u32 = 20;
 
+const MAX_CLIENT_SLOTS: u32 = playerstate_iw4::PLAYER_CORPSE_ENTITY_BASE as u32;
+
 const BOT_NAMES: [&str; 52] = [
     "contextrot",
     "t.me/contextrot",
@@ -149,15 +151,31 @@ impl BotTpQueue {
     }
 }
 
+/// What a queued press asks a bot to do for one command.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum BotPress {
+    Attack,
+    Melee,
+    Frag,
+}
+
 #[derive(Resource, Debug, Default)]
-pub struct BotFireQueue(pub Vec<BotTpTarget>);
+pub struct BotFireQueue(pub Vec<(BotTpTarget, BotPress)>);
 
 impl BotFireQueue {
     pub fn push(&mut self, target: BotTpTarget) {
-        self.0.push(target);
+        self.0.push((target, BotPress::Attack));
     }
 
-    pub fn drain(&mut self) -> Vec<BotTpTarget> {
+    pub fn push_melee(&mut self, target: BotTpTarget) {
+        self.0.push((target, BotPress::Melee));
+    }
+
+    pub fn push_frag(&mut self, target: BotTpTarget) {
+        self.0.push((target, BotPress::Frag));
+    }
+
+    pub fn drain(&mut self) -> Vec<(BotTpTarget, BotPress)> {
         core::mem::take(&mut self.0)
     }
 }
@@ -250,16 +268,12 @@ impl BotRoster {
     }
 
     fn claim_id(&mut self, taken: &[ClientId]) -> Option<ClientId> {
-        // Only `bots + taken` ids are spoken for, so one candidate more than
-        // that always turns up a free one.
-        let candidates = self
-            .bots
-            .len()
-            .saturating_add(taken.len())
-            .saturating_add(1);
-        for _ in 0..candidates {
+        for _ in 1..MAX_CLIENT_SLOTS {
+            if !(1..MAX_CLIENT_SLOTS).contains(&self.next_client) {
+                self.next_client = 1;
+            }
             let id = ClientId(self.next_client);
-            self.next_client = self.next_client.wrapping_add(1).max(1);
+            self.next_client += 1;
             if !taken.contains(&id) && !self.is_bot(id) {
                 return Some(id);
             }

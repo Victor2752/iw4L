@@ -459,6 +459,7 @@ impl ZoneLane for T5Lane {
                         fx_models: Default::default(),
 
                         fx_glass: None,
+                        map_content: Default::default(),
                         impact_fx: sink.impact_fx.take_table(),
                         reflection_probe_images,
                         intermission_view,
@@ -691,6 +692,9 @@ impl ZoneLane for T5Lane {
             impact_fx: sink.impact_fx.take_table(),
             fx_models: sink.fx_models,
             report,
+            pen_table: sink.pen_table.unwrap_or_default(),
+            pen_table_loaded: sink.pen_table.is_some(),
+            lochit_table: sink.lochit_table,
             teamsets: sink.teamsets,
             scene_models: sink.scene_models,
             scripts: sink.scripts,

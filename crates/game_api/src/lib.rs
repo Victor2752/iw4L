@@ -2,6 +2,11 @@
 //! is [`Rule::Unknown`]: the caller reports it as a gap and applies nothing in
 //! its place — never another game's rule.
 
+pub mod fire;
+pub mod movement;
+
+pub use movement::{MovementRules, WeaponRules};
+
 /// A rule this game does not have yet. `id` is listed in
 /// `docs/fidelity/<game>.md` (`cargo xtask boundary` checks it).
 #[derive(Debug, PartialEq, Eq)]
@@ -34,6 +39,8 @@ pub struct ScriptRequest<'a> {
     pub gametype: &'a str,
     /// The map's entity string.
     pub entities: &'a str,
+    /// A config file the map's zones carry (`gamedata/…/x.cfg`), by name.
+    pub config: &'a dyn Fn(&str) -> Option<&'a str>,
 }
 
 /// What a match compiles and where it starts.
@@ -41,6 +48,23 @@ pub struct ScriptProgram {
     pub catalog: gsc::Catalog,
     pub roots: Vec<String>,
     pub entries: Vec<String>,
+    /// A program the game built itself (from compiled scripts); the roots are
+    /// then only reported, not compiled.
+    pub built: Option<gsc::Program>,
+    /// The gametype's settings (`GetGametypeSetting`), by name.
+    pub settings: Vec<(String, String)>,
+    /// The type a map entity key's value takes, by key; a key not listed
+    /// stays as the runtime reads it otherwise.
+    pub key_types: Vec<(String, KeyType)>,
+}
+
+/// The type of a map entity key's value.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum KeyType {
+    Int,
+    Float,
+    String,
+    Vector,
 }
 
 pub trait GameScripts: Sync {
@@ -65,14 +89,11 @@ pub struct ModeRules {
     pub play_starts_on: &'static str,
     /// Every player goes down into last stand instead of dying.
     pub every_player_downs: Rule<bool>,
-    /// Players move by Modern Warfare 2's player movement (look, walk, jump,
-    /// stances, gravity, collision).
-    pub movement: Rule<()>,
+    /// Whose player movement (look, walk, jump, stances, gravity, collision)
+    /// moves the players.
+    pub movement: Rule<MovementRules>,
     /// Players' weapons run Modern Warfare 2's weapon state machine.
-    pub weapons: Rule<()>,
-    /// The share of firing and rechambering time Double Tap (`specialty_rof`)
-    /// leaves; `None` when the mode has no such perk.
-    pub double_tap_rate: Option<f32>,
+    pub weapons: Rule<WeaponRules>,
     /// A spawn starts at the default full health, not the stored max health.
     pub spawn_at_default_health: bool,
     /// The team every player joins on connect, when the scripts pick none.

@@ -1,3 +1,5 @@
+pub mod map_content;
+pub use map_content::{GlassContent, GlassDefinition, GlassPaneBasis, MapContentDefinition};
 pub mod family;
 pub use family::{Family, FamilyId, Iw4, Iw5, T5, T6, T7};
 pub mod asset_key;
@@ -14,5 +16,9 @@ pub use ident::{
     TechniqueSetIndex, TechniqueSetSpace, TracerIndex, TracerSpace, WalkLocalMaterialIndex,
     WorldWeaponIndex, WorldWeaponSpace, XAnimIndex, XAnimSpace, ZoneOwner, bound_zone_names,
 };
-pub use zone_format::{ZoneFormat, ZoneScripts};
+pub use zone_format::{
+    CollisionBox, CollisionBrush, CollisionLeaf, CollisionMaterial, CollisionModel, CollisionNode,
+    CollisionPartition, WorldCollision, WorldGeometry, WorldSurface, ZoneEntities, ZoneFormat,
+    ZoneScripts, ZoneWorld,
+};
 pub use zone_game::ZoneGame;

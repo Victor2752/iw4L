@@ -62,6 +62,8 @@ pub(super) async fn walk_prepared_match(
         return (MatchLoadOutcome::Canceled, None);
     }
 
+    common.start_donor_images();
+
     let cloning = std::time::Instant::now();
     let CommonProducts {
         scripts: mut iw4_scripts,
@@ -70,9 +72,9 @@ pub(super) async fn walk_prepared_match(
         shared_surfaces,
         scene_models: mut common_scene_models,
         light_defs: common_light_defs,
-        pen_table: common_pen_table,
-        pen_table_loaded: common_pen_loaded,
-        lochit_table: common_lochit_table,
+        pen_table: mut common_pen_table,
+        pen_table_loaded: mut common_pen_loaded,
+        lochit_table: mut common_lochit_table,
         tracers: mut common_tracers,
         xmodel_walk,
         s1_common_bytes,
@@ -196,6 +198,25 @@ pub(super) async fn walk_prepared_match(
     let zombie_scene_names = zombie_scripts
         .as_ref()
         .map(crate::ScriptSources::asset_names);
+    let mut zombie_weapon_materials = zombie.fpv.material_names();
+    zombie_weapon_materials.extend(zombie.world_weapons.material_names());
+    zombie_weapon_materials.extend(
+        zombie
+            .fx
+            .unique_material_keys()
+            .into_iter()
+            .map(|key| key.name),
+    );
+    let zombie_fx = zombie.fx;
+    let zombie_impact_fx = zombie.impact_fx;
+    // Black Ops' singleplayer tables for its zombie maps.
+    if let Some(table) = zombie.pen_table {
+        common_pen_table = table;
+        common_pen_loaded = true;
+    }
+    if zombie.lochit_table.is_some() {
+        common_lochit_table = zombie.lochit_table;
+    }
     let zombie_scene_models = zombie.scene_models;
     let zombie_hud_images = zombie.hud_images;
     report.extend(zombie.report);
@@ -462,12 +483,23 @@ pub(super) async fn walk_prepared_match(
                 })
                 .map(|(index, material)| (index, material.name.as_str().to_owned()))
                 .collect();
-            if models.is_empty() && held.is_empty() {
+            let weapon_models: Vec<usize> = population
+                .materials
+                .iter()
+                .enumerate()
+                .filter(|(_, material)| {
+                    material.name.is_real()
+                        && zombie_weapon_materials.contains(material.name.as_str())
+                })
+                .map(|(index, _)| index)
+                .collect();
+            if models.is_empty() && held.is_empty() && weapon_models.is_empty() {
                 continue;
             }
             absorbed += models.len();
             let mut wanted = models.walk_materials();
             wanted.extend(held.iter().map(|(index, _)| *index));
+            wanted.extend(weapon_models);
             let linked = global.absorb_selected_materials_host_wins(population, &wanted);
             for (index, name) in held {
                 if let Some(host) = linked[index] {
@@ -705,6 +737,15 @@ pub(super) async fn walk_prepared_match(
     let leftover_t5_fx_n = t5_fx.len();
     let leftover_t5_fx_gaps = t5_fx.capture_gaps;
     world.fx.absorb_missing(t5_fx);
+    let zombie_fx_n = zombie_fx.len();
+    if zombie_fx_n > 0 {
+        let before = world.fx.len();
+        world.fx.absorb_missing(zombie_fx);
+        report.push(format!(
+            "zombie zone fx absorb_missing: donor={zombie_fx_n} added={}",
+            world.fx.len() - before
+        ));
+    }
     report.push(format!(
         "leftover t5 fx absorb_missing: donor={leftover_t5_fx_n} gaps={leftover_t5_fx_gaps} host now {}",
         world.fx.len()
@@ -791,7 +832,24 @@ pub(super) async fn walk_prepared_match(
     decode_fx_colour_maps(&world.fx, &mut global, &image_trees, &progress, &mut report);
     if world.impact_fx.is_none() {
         world.impact_fx = if map_namespace == Some(asset_core::AssetNamespace::T5) {
-            t5_impact_fx.or(common_impact)
+            if let Some(table) = &zombie_impact_fx {
+                let names: std::collections::BTreeSet<&str> = table
+                    .entries
+                    .iter()
+                    .flat_map(|entry| entry.nonflesh.iter().chain(entry.flesh.iter()))
+                    .map(String::as_str)
+                    .filter(|name| !name.is_empty())
+                    .collect();
+                let found = names
+                    .iter()
+                    .filter(|name| world.fx.index_in(table.namespace(), name).is_some())
+                    .count();
+                report.push(format!(
+                    "impactfx: the zombie zones' table; {found}/{} effects in the fx catalog",
+                    names.len()
+                ));
+            }
+            zombie_impact_fx.or(t5_impact_fx).or(common_impact)
         } else {
             common_impact
         };
@@ -820,6 +878,7 @@ pub(super) async fn walk_prepared_match(
     ));
 
     let prepared_map = PreparedMap {
+        content: Arc::clone(&world.map_content),
         zone: zone_name,
         namespace: map_namespace,
         spawns: dm_spawns,

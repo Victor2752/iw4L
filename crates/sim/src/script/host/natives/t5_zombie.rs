@@ -1,6 +1,6 @@
 use super::super::arrays::new_array;
 use super::super::entities::EntityKind;
-use crate::script::{Namespace, NativeRegistry, Runtime, Value};
+use crate::script::{Namespace, NativeRegistry, RoundScript, Value};
 use bevy_ecs::prelude::World;
 
 pub(crate) fn register(registry: &mut NativeRegistry) {
@@ -33,7 +33,7 @@ pub(crate) fn register(registry: &mut NativeRegistry) {
     });
     registry.register(Function, "issentient", |world, _, args| {
         let sentient = match world
-            .resource::<Runtime>()
+            .resource::<RoundScript>()
             .entity(super::super::args::arg(args, 0)?)
         {
             Some((_, entity)) => matches!(entity.kind, EntityKind::Player | EntityKind::Actor),
@@ -72,7 +72,9 @@ pub(crate) fn register(registry: &mut NativeRegistry) {
             Value::Object(id) => *id,
             _ => return Err("receiver is not an entity".into()),
         };
-        let notarget = world.resource_mut::<Runtime>().object_field(id, "notarget");
+        let notarget = world
+            .resource_mut::<RoundScript>()
+            .object_field(id, "notarget");
         Ok(Value::Int(i32::from(
             matches!(notarget, Value::Int(n) if n != 0),
         )))
@@ -85,7 +87,7 @@ pub(crate) fn register(registry: &mut NativeRegistry) {
     // host's lobby members, or whoever is connected outside a lobby.
     registry.register(Function, "getnumexpectedplayers", |world, _, args| {
         no_args(args)?;
-        let expected = world.resource::<Runtime>().expected_players;
+        let expected = world.resource::<RoundScript>().expected_players;
         Ok(Value::Int(players(world).len().max(expected) as i32))
     });
     // Hints to engine systems the host does not model: AI perception events,
@@ -116,19 +118,22 @@ pub(crate) fn register(registry: &mut NativeRegistry) {
     ] {
         registry.register(Method, name, |_, _, _| Ok(Value::Undefined));
     }
-    // Stance and melee locks (while a perk bottle is drunk) are accepted but
-    // not enforced yet.
-    for name in [
-        "allowlean",
-        "allowcrouch",
-        "allowprone",
-        "allowstand",
-        "allowmelee",
-    ] {
-        registry.register(Method, name, |world, receiver, _| {
-            super::player::player(world, receiver)?;
-            Ok(Value::Undefined)
-        });
+    // Stance and lean locks (while a perk bottle is drunk), kept by Black
+    // Ops' movement.
+    macro_rules! restriction {
+        ($($name:literal => $what:ident),* $(,)?) => {$(
+            registry.register(Method, $name, |world, receiver, args| {
+                let allowed = super::player::flag(args, 0)?;
+                let id = crate::ClientId(super::player::player(world, receiver)?);
+                crate::game_move::restrict(
+                    &mut crate::frame::FrameWorld::from_world(world),
+                    id,
+                    game_api::movement::MoveRestriction::$what,
+                    allowed,
+                );
+                Ok(Value::Undefined)
+            });
+        )*};
     }
     // Zombies' `SetMaxHealth(value)` sets the health with the max health, so
     // Juggernog and a revive fill the player up to it.
@@ -137,6 +142,17 @@ pub(crate) fn register(registry: &mut NativeRegistry) {
         let health = Value::Int(super::super::args::int(args, 0)?);
         super::super::players::store_field(world, client, "maxhealth", &health)?;
         super::super::players::store_field(world, client, "health", &health)?;
+        Ok(Value::Undefined)
+    });
+    restriction!(
+        "allowlean" => Lean,
+        "allowcrouch" => Crouch,
+        "allowprone" => Prone,
+        "allowstand" => Stand,
+    );
+    // The melee lock is accepted but not enforced yet.
+    registry.register(Method, "allowmelee", |world, receiver, _| {
+        super::player::player(world, receiver)?;
         Ok(Value::Undefined)
     });
     registry.register(Method, "enableinvulnerability", |world, receiver, _| {
@@ -185,7 +201,7 @@ pub(crate) fn register(registry: &mut NativeRegistry) {
 
 fn set_invulnerable(world: &mut World, receiver: &Value, on: bool) -> Result<Value, String> {
     let client = super::player::player(world, receiver)?;
-    if let Some(slot) = world.resource_mut::<Runtime>().players.get_mut(&client) {
+    if let Some(slot) = world.resource_mut::<RoundScript>().players.get_mut(&client) {
         slot.invulnerable = on;
     }
     Ok(Value::Undefined)
@@ -201,7 +217,7 @@ fn optional_team(args: &[Value]) -> Result<Option<String>, String> {
 }
 
 fn on_team(world: &mut World, id: u64, team: &str) -> bool {
-    match world.resource_mut::<Runtime>().object_field(id, "team") {
+    match world.resource_mut::<RoundScript>().object_field(id, "team") {
         Value::String(own) => own.as_bytes() == team.as_bytes(),
         _ => true,
     }
@@ -210,13 +226,13 @@ fn on_team(world: &mut World, id: u64, team: &str) -> bool {
 /// Map actors flagged as spawners, in entity order.
 fn spawners(world: &mut World) -> Vec<u64> {
     let candidates: Vec<u64> = world
-        .resource::<Runtime>()
+        .resource::<RoundScript>()
         .entities
         .iter()
         .filter(|(_, entity)| entity.classname.starts_with("actor_"))
         .map(|(id, _)| *id)
         .collect();
-    let mut runtime = world.resource_mut::<Runtime>();
+    let mut runtime = world.resource_mut::<RoundScript>();
     candidates
         .into_iter()
         .filter(|&id| matches!(runtime.object_field(id, "spawnflags"), Value::Int(flags) if flags & 1 != 0))
@@ -226,13 +242,13 @@ fn spawners(world: &mut World) -> Vec<u64> {
 /// Actors alive on `team` (or any team), in entity order.
 fn living_actors(world: &mut World, team: Option<&str>) -> Vec<u64> {
     let actors: Vec<u64> = world
-        .resource::<Runtime>()
+        .resource::<RoundScript>()
         .entities
         .iter()
         .filter(|(_, entity)| entity.kind == EntityKind::Actor)
         .map(|(id, _)| *id)
         .collect();
-    let mut runtime = world.resource_mut::<Runtime>();
+    let mut runtime = world.resource_mut::<RoundScript>();
     actors
         .into_iter()
         .filter(|&id| {
@@ -260,7 +276,7 @@ fn no_args(args: &[Value]) -> Result<(), String> {
 /// Player entities in client order.
 fn players(world: &mut World) -> Vec<u64> {
     let mut players: Vec<(i32, u64)> = world
-        .resource::<Runtime>()
+        .resource::<RoundScript>()
         .entities
         .iter()
         .filter(|(_, entity)| entity.kind == EntityKind::Player)

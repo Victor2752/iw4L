@@ -32,6 +32,7 @@ impl WeaponCatalog {
             .sz_xanims
             .map(|arr| read_sz_xanims_t5(stream, arr, false))
             .unwrap_or([const { None }; WEAPON_ANIM_SLOTS]);
+        let (facts, game_bytes) = capture_t5_body_facts(stream, &geometry);
         self.entries.push(CatalogWeapon {
             namespace: self
                 .capture_ns
@@ -185,7 +186,8 @@ impl WeaponCatalog {
             sounds: leftover_t5_sounds(stream, strings, &geometry),
             combat_fx: WeaponCombatFx::empty(crate::AssetNamespace::T5),
             combat_slots: CombatFxSlots::default(),
-            facts: capture_t5_body_facts(stream, &geometry),
+            facts,
+            game_bytes,
         });
         let last = self.entries.last_mut().expect("just pushed");
         let (fx, slots) = leftover_t5_combat_fx(stream, &geometry);
@@ -335,40 +337,18 @@ pub(super) fn f32_at_t5(
     stream.f32_at(body, off).unwrap_or(0.0)
 }
 
-pub(super) fn read_bounce_array_t5(
+/// The floats a definition's pointer field at `off` points at.
+pub(super) fn read_f32_array_t5<const N: usize>(
     stream: &fastfile_t5::ZoneStream<'_>,
     body: fastfile_t5::Ptr,
     off: usize,
-) -> Option<[f32; 31]> {
+) -> Option<[f32; N]> {
     let arr = match stream.ptr_at(body, off) {
         Ok(fastfile_t5::ZonePtr::Offset(q)) => stream.resolve_alias(q),
         _ => return None,
     };
-    let mut values = [0.0; 31];
+    let mut values = [0.0; N];
     for (i, value) in values.iter_mut().enumerate() {
-        *value = stream.f32_at(arr, i * 4).ok()?;
-    }
-    Some(values)
-}
-
-/// The weapon's per-hit-location damage multipliers. Black Ops' hit
-/// locations are Modern Warfare 2's first 19 in the same order; MW2's
-/// trailing `shield` slot keeps 1.
-pub(super) fn read_location_damage_t5(
-    stream: &fastfile_t5::ZoneStream<'_>,
-    body: fastfile_t5::Ptr,
-) -> Option<[f32; weapon_iw4::HITLOC_COUNT]> {
-    use fastfile_t5::size as sz;
-    let arr = match stream.ptr_at(body, sz::WEAPON_DEF_LOCATION_DAMAGE_OFF) {
-        Ok(fastfile_t5::ZonePtr::Offset(q)) => stream.resolve_alias(q),
-        _ => return None,
-    };
-    let mut values = weapon_iw4::LOCATION_DAMAGE_IDENTITY;
-    for (i, value) in values
-        .iter_mut()
-        .take(sz::WEAPON_LOCATION_DAMAGE_COUNT)
-        .enumerate()
-    {
         *value = stream.f32_at(arr, i * 4).ok()?;
     }
     Some(values)
@@ -701,10 +681,12 @@ pub(super) fn leftover_t5_script_string_map(
     out
 }
 
+/// The body facts, and the definition and variant as the zone holds them for
+/// Black Ops' own weapon rules.
 pub(super) fn capture_t5_body_facts(
     stream: &fastfile_t5::ZoneStream<'_>,
     geometry: &fastfile_t5::WeaponGeometry,
-) -> WeaponBodyFacts {
+) -> (WeaponBodyFacts, Option<Arc<GameWeaponBytes>>) {
     use fastfile_t5::size as sz;
     let mut facts = WeaponBodyFacts {
         body_resolved: geometry.weap_def.is_some(),
@@ -760,7 +742,7 @@ pub(super) fn capture_t5_body_facts(
             f32_at_t5(stream, variant, sz::WEAPON_VARIANT_ADS_ZOOM_OUT_FRAC_OFF);
     }
     let Some(body) = geometry.weap_def else {
-        return facts;
+        return (facts, None);
     };
     facts.inventory_type = i32_at_t5(stream, body, sz::WEAPON_INVENTORY_TYPE_OFF);
     facts.dual_wield = u8_at_t5(stream, body, sz::WEAPON_DEF_DUAL_WIELD_OFF) != 0;
@@ -783,7 +765,6 @@ pub(super) fn capture_t5_body_facts(
     facts.min_damage = i32_at_t5(stream, body, sz::WEAPON_DEF_MIN_DAMAGE_OFF);
     facts.max_damage_range = f32_at_t5(stream, body, sz::WEAPON_DEF_MAX_DAMAGE_RANGE_OFF);
     facts.min_damage_range = f32_at_t5(stream, body, sz::WEAPON_DEF_MIN_DAMAGE_RANGE_OFF);
-    facts.location_damage_mult = read_location_damage_t5(stream, body);
     facts.explosion_radius = i32_at_t5(stream, body, sz::WEAPON_DEF_EXPLOSION_RADIUS_OFF);
     facts.explosion_radius_min = i32_at_t5(stream, body, sz::WEAPON_DEF_EXPLOSION_RADIUS_MIN_OFF);
     facts.explosion_inner_damage =
@@ -813,9 +794,9 @@ pub(super) fn capture_t5_body_facts(
     facts.cook_off_hold = u8_at_t5(stream, body, sz::WEAPON_DEF_COOK_OFF_HOLD_OFF) != 0;
     facts.offhand_hold_is_cancelable =
         Some(u8_at_t5(stream, body, sz::WEAPON_DEF_OFFHAND_HOLD_IS_CANCELABLE_OFF) != 0);
-    facts.parallel_bounce = read_bounce_array_t5(stream, body, sz::WEAPON_DEF_PARALLEL_BOUNCE_OFF);
+    facts.parallel_bounce = read_f32_array_t5(stream, body, sz::WEAPON_DEF_PARALLEL_BOUNCE_OFF);
     facts.perpendicular_bounce =
-        read_bounce_array_t5(stream, body, sz::WEAPON_DEF_PERPENDICULAR_BOUNCE_OFF);
+        read_f32_array_t5(stream, body, sz::WEAPON_DEF_PERPENDICULAR_BOUNCE_OFF);
     facts.fire_delay_ms = i32_at_t5(stream, body, sz::WEAPON_DEF_FIRE_DELAY_OFF);
     facts.quick_drop_time_ms = i32_at_t5(stream, body, sz::WEAPON_QUICK_DROP_TIME_OFF);
     facts.quick_raise_time_ms = i32_at_t5(stream, body, sz::WEAPON_QUICK_RAISE_TIME_OFF);
@@ -876,7 +857,31 @@ pub(super) fn capture_t5_body_facts(
     };
     facts.inherits_perks = leftover_t5_inherits_host_perks();
     facts.kick = leftover_t5_kick(stream, geometry);
-    facts
+    let game_bytes = geometry.variant.and_then(|variant| {
+        let def = stream.slice_at(body, 0, sz::WEAPON_DEF).ok()?;
+        let var = stream.slice_at(variant, 0, sz::WEAPON_VARIANT_DEF).ok()?;
+        Some(Arc::new(GameWeaponBytes {
+            def: def.into(),
+            variant: var.into(),
+            ammo_name: leftover_t5_cstr(stream, variant, sz::WEAPON_VARIANT_AMMO_NAME_OFF)
+                .unwrap_or_default(),
+            clip_name: leftover_t5_cstr(stream, variant, sz::WEAPON_VARIANT_CLIP_NAME_OFF)
+                .unwrap_or_default(),
+            named_anims: geometry.sz_xanims.map_or(0, |arr| {
+                (0..sz::WEAPON_XANIM_COUNT)
+                    .filter(|&slot| leftover_t5_cstr(stream, arr, slot * 4).is_some())
+                    .fold(0u128, |bits, slot| bits | 1 << slot)
+            }),
+            location_damage: read_f32_array_t5::<{ sz::WEAPON_LOCATION_DAMAGE_COUNT }>(
+                stream,
+                body,
+                sz::WEAPON_DEF_LOCATION_DAMAGE_OFF,
+            ),
+            parallel_bounce: facts.parallel_bounce,
+            perpendicular_bounce: facts.perpendicular_bounce,
+        }))
+    });
+    (facts, game_bytes)
 }
 
 pub(super) fn leftover_t5_inherits_host_perks() -> bool {

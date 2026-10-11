@@ -121,7 +121,7 @@ pub(crate) fn apply_explosion_blast(world: &mut FrameWorld, tick: Tick, blast: &
     let means = crate::script_player::means(world, blast.source, blast.weapon, 0, true);
     let ignore_model = world
         .ecs()
-        .get_resource::<crate::script::Runtime>()
+        .get_resource::<crate::script::RoundScript>()
         .and_then(|runtime| match blast.source {
             DamageSource::Projectile(id) => runtime
                 .missiles
@@ -183,6 +183,7 @@ fn apply_entity_blast(world: &mut FrameWorld, blast: &ExplosionBlast) {
                 dir: std::array::from_fn(|i| mid[i] - blast.origin[i]),
                 bone: None,
                 flags: IDFLAGS_RADIUS,
+                hit_location: None,
             },
         );
     }

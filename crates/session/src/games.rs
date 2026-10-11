@@ -61,11 +61,12 @@ pub fn menus(family: FamilyId) -> &'static dyn game_api::GameMenus {
 
 /// The natives the scripts of the game the map belongs to bind.
 pub(crate) fn natives(family: FamilyId) -> sim::script::NativeRegistry {
-    let services = sim::script::NativeRegistry::engine_services();
+    let services = sim::script::NativeRegistry::engine_services;
     match family {
-        FamilyId::Iw4 => services.with_mw2_systems(),
-        FamilyId::T5 => services.with_black_ops(),
-        FamilyId::Iw5 | FamilyId::T6 | FamilyId::T7 => services,
+        FamilyId::Iw4 => services().with_mw2_systems(),
+        FamilyId::T5 => services().with_black_ops(),
+        FamilyId::Iw5 | FamilyId::T6 => services(),
+        FamilyId::T7 => sim::script::NativeRegistry::black_ops_3(),
     }
 }
 
@@ -90,8 +91,8 @@ impl game_api::GameModes for T6OnIw4Movement {
     fn mode(&self, gametype: &str) -> game_api::Rule<game_api::ModeRules> {
         match game_api::GameModes::mode(&game_t6::GAME, gametype) {
             game_api::Rule::Known(mut mode) => {
-                mode.movement = game_api::Rule::Known(());
-                mode.weapons = game_api::Rule::Known(());
+                mode.movement = game_api::Rule::Known(game_api::MovementRules::Simulation);
+                mode.weapons = game_api::Rule::Known(game_api::WeaponRules::Simulation);
                 game_api::Rule::Known(mode)
             }
             unknown => unknown,
@@ -103,10 +104,10 @@ impl game_api::GameModes for T6OnIw4Movement {
     }
 }
 
-/// Black Ops zombies moves, fires, goes down and draws its HUD by Modern
-/// Warfare 2's rules: this fork keeps Kino playable on them until Black Ops'
-/// own exist (the `t5.*` ids these Known answers cover are in
-/// docs/fidelity/t5.md).
+/// Black Ops zombies goes down and draws its code HUD by Modern Warfare 2's
+/// rules: this fork keeps Kino playable on them until Black Ops' own exist
+/// (the `t5.*` ids these Known answers cover are in docs/fidelity/t5.md). Its
+/// movement and weapons are Black Ops' own (`game_t5`).
 struct T5OnIw4Rules;
 
 static T5_ON_IW4_RULES: T5OnIw4Rules = T5OnIw4Rules;
@@ -135,8 +136,6 @@ impl game_api::GameModes for T5OnIw4Rules {
     fn mode(&self, gametype: &str) -> game_api::Rule<game_api::ModeRules> {
         match game_api::GameModes::mode(&game_t5::GAME, gametype) {
             game_api::Rule::Known(mut mode) => {
-                mode.movement = game_api::Rule::Known(());
-                mode.weapons = game_api::Rule::Known(());
                 mode.every_player_downs = game_api::Rule::Known(true);
                 mode.hud.code_hud = game_api::Rule::Known(());
                 game_api::Rule::Known(mode)

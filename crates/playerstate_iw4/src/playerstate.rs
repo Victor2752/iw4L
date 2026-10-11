@@ -122,7 +122,12 @@ pub struct PlayerState {
     pub kill_cam_look_at_entity: i32,
     pub kill_cam_client_num: i32,
     pub recoil_scale: i32,
+    /// Not MW2's: what another game's own movement keeps for the player
+    /// beyond these fields, replicated and rolled back with them.
+    pub game_move: [u8; GAME_MOVE_BYTES],
 }
+
+pub const GAME_MOVE_BYTES: usize = game_api::movement::GAME_MOVE_BYTES;
 
 pub mod eflags {
     pub const TELEPORT: u32 = 0x2;
@@ -341,6 +346,7 @@ impl PlayerState {
         kill_cam_look_at_entity: 0,
         kill_cam_client_num: 0,
         recoil_scale: 0,
+        game_move: [0; GAME_MOVE_BYTES],
     };
 
     pub fn anim(&self) -> AnimPair {
@@ -370,6 +376,11 @@ pub const PERK_QUICKDRAW_SPEED_SCALE: f32 = 1.5;
 pub const PERK_COLDBLOODED: u32 = 1 << 27;
 
 pub const PERK_HEARTBREAKER: u32 = 1 << 28;
+pub const PERK_SELECTIVEHEARING: u32 = 1 << 29;
+pub const PERK1_FASTSPRINTRECOVERY: u32 = 1 << 2;
+pub const PERK1_EXTENDEDMELEE: u32 = 1 << 3;
+pub const EXTENDED_MELEE_TARGET_RANGE: f32 = 192.0;
+pub const SPRINT_RECOVERY_MULTIPLIER: f32 = 0.6;
 
 pub const PERK1_SPYGAME: u32 = 1;
 

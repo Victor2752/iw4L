@@ -10,9 +10,9 @@ use crate::{
 use entity_iw4::{
     GLASS_PROJECTILE_PANE_HOPS, GRENADE_SPIN_PITCH_MAX, GRENADE_SPIN_PITCH_MIN,
     GRENADE_SPIN_ROLL_MAX, GRENADE_SPIN_ROLL_MIN, MISSILE_GLASS_SHATTER_VEL, MissileLandAnglesIn,
-    TR_GRAVITY, TR_STATIONARY, Trajectory, evaluate_trajectory, evaluate_trajectory_delta,
-    fire_grenade_no_draw_ms, fire_missile_apos, init_grenade_apos, init_grenade_pos,
-    missile_land_angles,
+    TR_GRAVITY, TR_LINEAR, TR_STATIONARY, Trajectory, evaluate_trajectory,
+    evaluate_trajectory_delta, fire_grenade_no_draw_ms, fire_missile_apos, init_grenade_apos,
+    init_grenade_pos, missile_land_angles,
 };
 use trace_iw4::surface_type_from_flags;
 
@@ -590,6 +590,9 @@ pub(crate) fn predict_projectile(
 }
 
 pub(crate) fn think_projectile(world: &mut FrameWorld, tick: Tick, entnum: i32) {
+    if crate::game_fire::think_game_missile(world, tick, entnum) {
+        return;
+    }
     struct PendingDetonation {
         projectile: ProjectileState,
         origin: [f32; 3],
@@ -616,7 +619,7 @@ pub(crate) fn think_projectile(world: &mut FrameWorld, tick: Tick, entnum: i32) 
             .detonate_at_ms
             .is_none_or(|deadline| deadline > projectile.cleanup_at_ms || !projectile.live)
     {
-        let _ = world.remove_projectile_by_number(entnum);
+        let _ = world.despawn_projectile(entnum);
         return;
     }
     let facts = required_projectile_facts(world, projectile.weapon);
@@ -742,6 +745,7 @@ pub(crate) fn think_projectile(world: &mut FrameWorld, tick: Tick, entnum: i32) 
                         glass_encoded,
                         ..
                     }),
+                ..
             } if missile_glass_punch_eligible(speed, surface_flags, glass_encoded) => {
                 let pane = u32::from(glass_encoded).saturating_sub(1);
                 if world.world_objects().glass_is_solid(pane) {
@@ -820,7 +824,7 @@ pub(crate) fn think_projectile(world: &mut FrameWorld, tick: Tick, entnum: i32) 
             normal,
             collider,
         } => Some((end, normal, Some(collider), fraction)),
-        TraceOutcome::StartSolid { collider, end } => {
+        TraceOutcome::StartSolid { collider, end, .. } => {
             Some((end, startsolid_normal(start, end), collider, 0.0))
         }
         TraceOutcome::Miss { .. } | TraceOutcome::Invalid { .. } => None,
@@ -891,7 +895,7 @@ pub(crate) fn think_projectile(world: &mut FrameWorld, tick: Tick, entnum: i32) 
     };
     match tick_outcome {
         TickOutcome::Cleanup => {
-            let _ = world.remove_projectile_by_number(entnum);
+            let _ = world.despawn_projectile(entnum);
             return;
         }
         TickOutcome::Fuse => {
@@ -963,6 +967,7 @@ pub(crate) fn think_projectile(world: &mut FrameWorld, tick: Tick, entnum: i32) 
                                     dir: projectile.velocity,
                                     bone,
                                     flags: 0,
+                                    hit_location: None,
                                 },
                             ));
                         }
@@ -1119,6 +1124,7 @@ pub(crate) fn think_projectile(world: &mut FrameWorld, tick: Tick, entnum: i32) 
                                     dir: projectile.velocity,
                                     bone,
                                     flags: 0,
+                                    hit_location: None,
                                 },
                             ));
                         }
@@ -1297,7 +1303,11 @@ pub(crate) fn think_projectile(world: &mut FrameWorld, tick: Tick, entnum: i32) 
             *row = projectile;
         }
     } else {
-        let _ = world.remove_projectile_by_number(entnum);
+        let terminal = detonated
+            .iter()
+            .find(|info| info.splash)
+            .map(|info| (tick, info.projectile));
+        let _ = world.finish_projectile(entnum, terminal);
     }
     for info in &detonated {
         impacts.push(ProjectileImpact {
@@ -1315,11 +1325,6 @@ pub(crate) fn think_projectile(world: &mut FrameWorld, tick: Tick, entnum: i32) 
         });
     }
     world.record_projectile_impacts(tick, &impacts);
-    for info in &detonated {
-        if info.splash {
-            world.note_dying_missile(tick, info.projectile);
-        }
-    }
     let resolves_damage = world.publishes_snapshot();
     if resolves_damage {
         for (projectile, target) in direct_hits {
@@ -1363,25 +1368,14 @@ pub(crate) fn think_projectile(world: &mut FrameWorld, tick: Tick, entnum: i32) 
             continue;
         }
         let facts = required_projectile_facts(world, info.projectile.weapon);
-        let event_kind = if facts.projectile_explosion_type == 2 {
-            entity_iw4::EntityEventKind::FLASHBANG_EXPLODE
-        } else {
-            entity_iw4::EntityEventKind::GRENADE_EXPLODE
-        };
-        world.push_entity_event(
+        push_explosion_event(
+            world,
             tick,
-            EventAudience::All,
-            event_kind,
-            crate::EntityEventPayload {
-                number: info.projectile.entnum,
-                attacker_entity_num: info.projectile.owner.0 as i32,
-                weapon: info.projectile.weapon,
-                correlation: info.projectile.id.0,
-                origin: info.origin,
-                direction: info.normal,
-                surf_type: info.surf_type,
-                ..Default::default()
-            },
+            &info.projectile,
+            info.origin,
+            info.normal,
+            info.surf_type,
+            facts.projectile_explosion_type == 2,
         );
         if !resolves_damage {
             continue;
@@ -1432,7 +1426,56 @@ pub(crate) fn think_projectile(world: &mut FrameWorld, tick: Tick, entnum: i32) 
     }
 }
 
-fn push_grenade_bounce(
+/// A missile's explosion, as clients show it: a flash grenade's or any
+/// other's.
+pub(crate) fn push_explosion_event(
+    world: &mut FrameWorld,
+    tick: Tick,
+    projectile: &ProjectileState,
+    origin: [f32; 3],
+    normal: [f32; 3],
+    surf_type: u8,
+    flash: bool,
+) {
+    let event_kind = if flash {
+        entity_iw4::EntityEventKind::FLASHBANG_EXPLODE
+    } else {
+        entity_iw4::EntityEventKind::GRENADE_EXPLODE
+    };
+    world.push_entity_event(
+        tick,
+        EventAudience::All,
+        event_kind,
+        crate::EntityEventPayload {
+            number: projectile.entnum,
+            attacker_entity_num: projectile.owner.0 as i32,
+            weapon: projectile.weapon,
+            correlation: projectile.id.0,
+            origin,
+            direction: normal,
+            surf_type,
+            ..Default::default()
+        },
+    );
+}
+
+/// A game's trajectory as the runtime replicates it.
+pub(crate) fn game_trajectory(tr: &game_api::fire::GameTrajectory) -> Trajectory {
+    use game_api::fire::TrajectoryKind;
+    Trajectory {
+        tr_time: tr.time,
+        tr_type: match tr.kind {
+            TrajectoryKind::Stationary => TR_STATIONARY,
+            TrajectoryKind::Linear => TR_LINEAR,
+            TrajectoryKind::Gravity(_) => TR_GRAVITY,
+        },
+        tr_duration: tr.duration,
+        tr_delta: tr.delta,
+        tr_base: tr.base,
+    }
+}
+
+pub(crate) fn push_grenade_bounce(
     world: &mut FrameWorld,
     tick: Tick,
     projectile: &ProjectileState,

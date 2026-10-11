@@ -1,20 +1,62 @@
-use game_api::{LibraryMode, ModeRules, Rule, ScriptProgram, ScriptRequest, unknown};
+mod key_types;
+mod startup;
+
+use game_api::{HudRules, LibraryMode, ModeRules, Rule, ScriptProgram, ScriptRequest, unknown};
 
 pub struct T7;
 
 pub static GAME: T7 = T7;
 
+const ZOMBIES: &str = "zclassic";
+
+/// The module that holds the code callbacks the engine calls.
+const CALLBACKS: &str = "scripts/shared/callbacks_shared";
+
 impl game_api::GameScripts for T7 {
     fn program(
         &self,
-        _request: &ScriptRequest<'_>,
-        _sources: &dyn gsc::SourceResolver,
+        request: &ScriptRequest<'_>,
+        sources: &dyn gsc::SourceResolver,
     ) -> Rule<ScriptProgram> {
-        Rule::Unknown(unknown!(
-            "t7.scripts.compiled",
-            "Black Ops 3 ships its scripts compiled; IW4L reads the modules but has no VM for them",
-            "the meaning of Black Ops 3's opcodes, a VM for them, and its builtins"
-        ))
+        if request.gametype != ZOMBIES || !request.map.starts_with("zm_") {
+            return Rule::Unknown(unknown!(
+                "t7.scripts.gametypes",
+                "Black Ops 3 modes other than Classic zombies on a zombies map",
+                "Black Ops 3's rules for that mode"
+            ));
+        }
+        let gametype = format!("scripts/zm/gametypes/{ZOMBIES}");
+        let map = format!("scripts/zm/{}", request.map);
+        let roots = vec![gametype.clone(), map.clone()];
+        let modules = startup::load(sources, &roots);
+        let built = gsc_t7::build(&modules, asset_core::FamilyId::T7);
+        for line in &built.report {
+            diag::info!(Sim, "{line}");
+        }
+        // Black Ops 3's executable looks up its code callbacks by hash; the
+        // order is read from what the scripts need: the systems registered by
+        // `autoexec` are set up in pre-initialization before the mains use
+        // them, and finalize-initialization runs the post-systems after.
+        let mut entries = built.autoexec;
+        entries.push(format!("{CALLBACKS}::codecallback_preinitialization"));
+        entries.push(format!("{gametype}::main"));
+        entries.push(format!("{map}::main"));
+        entries.push(format!("{CALLBACKS}::codecallback_finalizeinitialization"));
+        entries.push(format!("{CALLBACKS}::codecallback_startgametype"));
+        let settings = gametype_settings(request.config, ZOMBIES);
+        diag::info!(
+            Sim,
+            "t7 gametype settings: {} for {ZOMBIES}",
+            settings.len()
+        );
+        Rule::Known(ScriptProgram {
+            catalog: gsc::Catalog::from_list(asset_core::FamilyId::T7, &[]),
+            roots,
+            entries,
+            built: Some(built.program),
+            settings,
+            key_types: entity_key_types(request.entities),
+        })
     }
 
     fn engine_dvars(&self, _gametype: &str) -> &'static [(&'static str, &'static str)] {
@@ -24,6 +66,60 @@ impl game_api::GameScripts for T7 {
     fn config_defaults(&self) -> &'static [(&'static str, &'static str)] {
         &[]
     }
+}
+
+/// The types of the keys the map's entities use, as Black Ops 3's
+/// executable lists them by the key's hash.
+fn entity_key_types(entities: &str) -> Vec<(String, game_api::KeyType)> {
+    let mut keys = std::collections::BTreeSet::new();
+    for line in entities.lines() {
+        let line = line.trim_start();
+        if let Some(rest) = line.strip_prefix('"')
+            && let Some(end) = rest.find('"')
+        {
+            keys.insert(rest[..end].to_ascii_lowercase());
+        }
+    }
+    keys.into_iter()
+        .filter_map(|key| {
+            let hash = gsc_t7::hash(&key);
+            key_types::KEY_TYPES
+                .binary_search_by_key(&hash, |&(known, _)| known)
+                .ok()
+                .map(|index| (key, key_types::KEY_TYPES[index].1))
+        })
+        .collect()
+}
+
+/// A zombies gametype's settings: `gamedata/gamesettings/zm/
+/// gamesettings_default.cfg`, then the gametype's own file over it. Each line
+/// is `gametype_setting <name> <value>`, `//` starting a comment.
+fn gametype_settings<'a>(
+    config: &dyn Fn(&str) -> Option<&'a str>,
+    gametype: &str,
+) -> Vec<(String, String)> {
+    let mut settings: Vec<(String, String)> = Vec::new();
+    for file in ["default", gametype] {
+        let Some(text) = config(&format!("gamedata/gamesettings/zm/gamesettings_{file}.cfg"))
+        else {
+            continue;
+        };
+        for line in text.lines() {
+            let line = line.split("//").next().unwrap_or("");
+            let mut words = line.split_whitespace();
+            let (Some("gametype_setting"), Some(name), Some(value)) =
+                (words.next(), words.next(), words.next())
+            else {
+                continue;
+            };
+            let name = name.to_ascii_lowercase();
+            match settings.iter_mut().find(|(set, _)| *set == name) {
+                Some((_, set)) => value.clone_into(set),
+                None => settings.push((name, value.to_owned())),
+            }
+        }
+    }
+    settings
 }
 
 impl game_api::GameVision for T7 {
@@ -70,12 +166,61 @@ impl game_api::GameMenus for T7 {
     }
 }
 
+/// Classic zombies: the match is run by the gametype and map scripts; the
+/// engine imposes no limit and spawns no one on its own.
+const ZOMBIES_MODE: ModeRules = ModeRules {
+    play_starts_on: "all_players_connected",
+    every_player_downs: Rule::Unknown(unknown!(
+        "t7.match.last_stand",
+        "when a dying Black Ops 3 zombies player goes into last stand, and how a downed player moves and sees",
+        "Black Ops 3's down rule"
+    )),
+    movement: Rule::Unknown(unknown!(
+        "t7.movement.player",
+        "Black Ops 3's player movement: look, walk, sprint, jump, slide, stances, gravity, collision",
+        "Black Ops 3's player movement rules"
+    )),
+    weapons: Rule::Unknown(unknown!(
+        "t7.weapons.state_machine",
+        "Black Ops 3's weapon state machine: fire, reload, switch, ADS, melee, offhands",
+        "Black Ops 3's weapon rules"
+    )),
+    spawn_at_default_health: true,
+    connect_team: Some("allies"),
+    scripts_spawn_players: true,
+    spawn_classnames: None,
+    unlimited: Rule::Known(true),
+    limits_from_config: false,
+    default_score_limit: None,
+    zombie_zone_scripts: false,
+    report_builtin_gaps: true,
+    waits_for_lobby: true,
+    binds_account: false,
+    binds_objectives: false,
+    hud: HudRules {
+        code_hud: Rule::Unknown(unknown!(
+            "t7.hud.code_hud",
+            "Black Ops 3's code-drawn HUD",
+            "Black Ops 3's HUD rules"
+        )),
+        game_hud_menus: false,
+        scoreboard: false,
+        scorebar: false,
+        compass: false,
+        script_text: false,
+        material_font_floor: false,
+    },
+};
+
 impl game_api::GameModes for T7 {
-    fn mode(&self, _gametype: &str) -> Rule<ModeRules> {
+    fn mode(&self, gametype: &str) -> Rule<ModeRules> {
+        if gametype == ZOMBIES {
+            return Rule::Known(ZOMBIES_MODE);
+        }
         Rule::Unknown(unknown!(
             "t7.scripts.gametypes",
-            "Black Ops 3's match flow lives in its compiled gametype scripts, which IW4L does not run yet",
-            "a VM for Black Ops 3's compiled scripts and its builtins"
+            "Black Ops 3 modes other than Classic zombies on a zombies map",
+            "Black Ops 3's rules for that mode"
         ))
     }
 
@@ -86,6 +231,6 @@ impl game_api::GameModes for T7 {
 
 static ZOMBIES_LIBRARY: LibraryMode = LibraryMode {
     gametype: "zclassic",
-    note: "Black Ops 3's zombies run on its compiled scripts, which IW4L cannot run yet: the match is refused (docs/fidelity/t7.md).",
+    note: "Runs the map's own compiled scripts; the map's world, weapons and movement are not read yet (docs/fidelity/t7.md).",
     maps: &[("zm_zod", "SHADOWS OF EVIL")],
 };

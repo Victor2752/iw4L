@@ -473,6 +473,7 @@ impl WeaponCatalog {
                 fire_melees: false,
                 no_dual_wield: geometry.no_dual_wield,
             },
+            game_bytes: None,
         });
     }
 }

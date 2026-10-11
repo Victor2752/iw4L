@@ -279,7 +279,7 @@ pub(super) fn walk_foreign_material_common(
     donor: &Path,
     progress: &LoadProgress,
     job: load_jobs::Job,
-) -> (MaterialCatalog, Option<PendingImages>, Vec<String>) {
+) -> (MaterialCatalog, Option<HeldImagePlan>, Vec<String>) {
     let mut report = Vec::new();
     let Some(mut census) = capture_common_zone(
         donor,
@@ -290,8 +290,7 @@ pub(super) fn walk_foreign_material_common(
     ) else {
         return (MaterialCatalog::default(), None, report);
     };
-    let pending_images = hold_image_plan("IW5 common_mp", census.pending_images.take(), job)
-        .map(|held| held.enqueue(progress));
+    let held_images = hold_image_plan("IW5 common_mp", census.pending_images.take(), job);
     let materials = census.material_population;
     report.extend(census.report);
     report.push(format!(
@@ -300,7 +299,7 @@ pub(super) fn walk_foreign_material_common(
         materials.materials.len(),
         materials.technique_set_facts().len(),
     ));
-    (materials, pending_images, report)
+    (materials, held_images, report)
 }
 
 fn capture_common_zone(
@@ -532,11 +531,11 @@ pub(super) enum ForeignCommonWork {
         bevy::tasks::Task<(
             MaterialCatalog,
             Iw5WeaponBundle,
-            Option<PendingImages>,
+            Option<HeldImagePlan>,
             Vec<String>,
         )>,
     ),
-    Split(Option<bevy::tasks::Task<(MaterialCatalog, Option<PendingImages>, Vec<String>)>>),
+    Split(Option<bevy::tasks::Task<(MaterialCatalog, Option<HeldImagePlan>, Vec<String>)>>),
 }
 
 #[derive(Default)]
@@ -588,7 +587,7 @@ pub(super) fn walk_iw5_weapon_bundle(
     donor: &Path,
     progress: &LoadProgress,
     job: load_jobs::Job,
-) -> (Iw5WeaponBundle, Option<PendingImages>, Vec<String>) {
+) -> (Iw5WeaponBundle, Option<HeldImagePlan>, Vec<String>) {
     let mut report = Vec::new();
     let Some(mut census) = capture_common_zone(
         donor,
@@ -599,11 +598,7 @@ pub(super) fn walk_iw5_weapon_bundle(
     ) else {
         return (Iw5WeaponBundle::default(), None, report);
     };
-    // The producer enqueues the bundle's images itself. Left for the consumer,
-    // they wait out the synchronous `common_mp` walk and the unpacking of this
-    // tuple: seconds of ready decode work with nobody holding it.
-    let pending_images = hold_image_plan("IW5 weapon bundle", census.pending_images.take(), job)
-        .map(|held| held.enqueue(progress));
+    let held_images = hold_image_plan("IW5 weapon bundle", census.pending_images.take(), job);
     report.extend(census.report);
     report.push(format!(
         "iw5 weapons: path={} ids={} gun_named={} fpv={} world_guns={} xanims={} materials={}",
@@ -627,7 +622,7 @@ pub(super) fn walk_iw5_weapon_bundle(
             scene_models: census.scene_models,
             shared_surfaces: census.shared_surfaces,
         },
-        pending_images,
+        held_images,
         report,
     )
 }
@@ -639,7 +634,7 @@ pub(super) fn walk_shared_iw5_common(
 ) -> (
     MaterialCatalog,
     Iw5WeaponBundle,
-    Option<PendingImages>,
+    Option<HeldImagePlan>,
     Vec<String>,
 ) {
     let mut report = Vec::new();
@@ -660,8 +655,7 @@ pub(super) fn walk_shared_iw5_common(
     // One capture serves the material seed and the weapon bundle, so there is
     // one plan here, not two: the donor is walked once and its images are
     // claimed once.
-    let pending_images = hold_image_plan("IW5 common_mp", census.pending_images.take(), job)
-        .map(|held| held.enqueue(progress));
+    let held_images = hold_image_plan("IW5 common_mp", census.pending_images.take(), job);
     report.extend(census.report);
     let materials = census.material_population;
     report.push(format!(
@@ -689,7 +683,7 @@ pub(super) fn walk_shared_iw5_common(
             scene_models: census.scene_models,
             shared_surfaces: census.shared_surfaces,
         },
-        pending_images,
+        held_images,
         report,
     )
 }
@@ -763,7 +757,7 @@ pub(super) struct T5WeaponCommon {
     pub(super) projectiles: asset_model::ProjectileMeshBuild,
     pub(super) teamsets: std::collections::HashMap<String, asset_game::MapTeamSettings>,
     pub(super) scene_models: asset_world::MapXModelSceneCatalog,
-    pub(super) images: Option<PendingImages>,
+    pub(super) images: Option<HeldImagePlan>,
     pub(super) stats_tables: (
         Vec<asset_game::CapturedStringTable>,
         Vec<asset_game::CapturedStringTable>,
@@ -827,8 +821,7 @@ pub(super) fn walk_t5_weapon_common(
         }
     };
     let mut census = lane(image.game).load_common_mp(&donor, &image, progress, true, material_seed);
-    let images = hold_image_plan("T5 common_mp", census.pending_images.take(), job)
-        .map(|held| held.enqueue(progress));
+    let images = hold_image_plan("T5 common_mp", census.pending_images.take(), job);
     report.extend(census.report);
     report.push(format!(
         "t5 weapon common: path={} weapons={} fpv={} world_guns={} materials={} xanims={} fx={}",
@@ -894,6 +887,8 @@ fn t6_class_tables(
             asset_game::is_stats_table_name(&table.name)
                 || table.name.eq_ignore_ascii_case("mp/attachmentTable.csv")
                 || table.name.eq_ignore_ascii_case("mp/mapstable.csv")
+                || table.name.eq_ignore_ascii_case("mp/rankTable.csv")
+                || table.name.eq_ignore_ascii_case("mp/unlockTable.csv")
         })
         .collect();
     report.push(format!(
@@ -1215,6 +1210,14 @@ pub(super) struct ZombieCommons {
     pub(super) fpv: FpvMeshBuild,
     pub(super) world_weapons: WorldWeaponBuild,
     pub(super) projectiles: asset_model::ProjectileMeshBuild,
+    /// Effects of the zombie zones, later zones over earlier ones.
+    pub(super) fx: asset_game::FxCatalog,
+    /// The impact effect table of the last zombie zone that has one.
+    pub(super) impact_fx: Option<asset_game::OwnedFxImpactTable>,
+    /// Black Ops' singleplayer penetration depths and hit location damage,
+    /// from the zone that carries them.
+    pub(super) pen_table: Option<crate::lane::PenTable>,
+    pub(super) lochit_table: Option<crate::lane::LochitTable>,
     /// Singleplayer and zombie scripts, lowest priority first; the map and its
     /// patch go on top.
     pub(super) scripts: Option<crate::ScriptSources>,
@@ -1295,6 +1298,16 @@ pub(super) fn walk_zombie_commons(zone_ff: &Path, progress: &LoadProgress) -> Zo
         commons.fpv.absorb(census.fpv.clone());
         commons.world_weapons.absorb(census.world_weapons.clone());
         commons.projectiles.absorb(census.projectile_meshes.clone());
+        commons.fx.absorb(census.fx);
+        if census.impact_fx.is_some() {
+            commons.impact_fx = census.impact_fx;
+        }
+        if census.pen_table_loaded {
+            commons.pen_table = Some(census.pen_table);
+        }
+        if census.lochit_table.is_some() {
+            commons.lochit_table = census.lochit_table;
+        }
         commons.report.push(format!(
             "zombie common {zone}: xanims={xanims} weapons={} scene_models={} scripts={}",
             census.weapons.len(),

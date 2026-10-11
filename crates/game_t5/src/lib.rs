@@ -1,11 +1,19 @@
 mod catalog;
+mod fire;
+mod grenade;
 mod menu_expression;
+mod missile;
+mod movement;
+mod radius;
 mod zombie_catalog;
 mod zombie_startup;
 
 pub use menu_expression::parse_menu_expression;
 
-use game_api::{HudRules, LibraryMode, ModeRules, Rule, ScriptProgram, ScriptRequest, unknown};
+use game_api::{
+    HudRules, LibraryMode, ModeRules, MovementRules, Rule, ScriptProgram, ScriptRequest,
+    WeaponRules, unknown,
+};
 
 pub struct T5;
 
@@ -49,6 +57,9 @@ impl game_api::GameScripts for T5 {
                 .extended(zombie_catalog::T5_ZOMBIE.iter().cloned()),
             roots: startup.roots,
             entries: startup.entries,
+            built: None,
+            settings: Vec::new(),
+            key_types: Vec::new(),
         })
     }
 
@@ -67,20 +78,8 @@ impl game_api::GameScripts for T5 {
 
 const ZOMBIE_MODE: ModeRules = ModeRules {
     play_starts_on: "all_players_connected",
-    movement: Rule::Unknown(unknown!(
-        "t5.movement.player",
-        "Black Ops' player movement: look, walk, sprint, jump, stances, dive to prone, gravity, collision",
-        "Black Ops' player movement rules from its executable"
-    )),
-    weapons: Rule::Unknown(unknown!(
-        "t5.weapons.state_machine",
-        "Black Ops' weapon state machine: fire, reload, switch, ADS, melee, offhands",
-        "Black Ops' weapon rules from its executable"
-    )),
-    // `perk_weapRateMultiplier` (`Perks_RegisterDvars`); with Double Tap,
-    // `PM_Weapon_WeaponTimeAdjust` runs every weapon's fire and rechamber
-    // time at the command time over it. No zombie script sets the dvar.
-    double_tap_rate: Some(0.75),
+    movement: Rule::Known(MovementRules::Game(&movement::ZOMBIES)),
+    weapons: Rule::Known(WeaponRules::Game),
     every_player_downs: Rule::Unknown(unknown!(
         "t5.match.last_stand",
         "when a dying Black Ops zombies player goes into last stand, and how a downed player moves and sees",

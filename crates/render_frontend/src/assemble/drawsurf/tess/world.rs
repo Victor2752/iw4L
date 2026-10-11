@@ -106,7 +106,8 @@ impl WorldDrawGpuPlan {
                 asset_world::WorldVertexPayload::Iw4(rows)
                 | asset_world::WorldVertexPayload::Iw5(rows)
                 | asset_world::WorldVertexPayload::T5(rows)
-                | asset_world::WorldVertexPayload::T6(rows) => {
+                | asset_world::WorldVertexPayload::T6(rows)
+                | asset_world::WorldVertexPayload::Host(rows) => {
                     self.vertex_share = Some(Arc::new(rows));
                 }
                 unavailable => self.packed_vertices = unavailable,
@@ -357,5 +358,6 @@ pub(crate) fn build_world_draw_gpu_plan(
         scene.retained_lightmap_uvs.len(),
         scene.retained_normals.len(),
     );
-    commands.insert_resource(plan);
+    commands
+        .queue(move |world: &mut World| frame::scope::insert(world, plan, frame::MatchScope::Live));
 }

@@ -536,6 +536,24 @@ impl WeaponCamoModels {
     }
 }
 
+/// A weapon's own definition and variant bytes, for a game that runs its own
+/// weapon rules over them, with the names its loader resolves into indices.
+#[derive(Clone, Debug, PartialEq)]
+pub struct GameWeaponBytes {
+    pub def: Box<[u8]>,
+    pub variant: Box<[u8]>,
+    pub ammo_name: String,
+    pub clip_name: String,
+    /// The variant's animation slots that name an animation, by slot.
+    pub named_anims: u128,
+    /// The definition's damage multipliers by hit location.
+    pub location_damage: Option<[f32; 19]>,
+    /// The definition's bounce coefficients along and across a surface, by
+    /// surface type.
+    pub parallel_bounce: Option<[f32; 31]>,
+    pub perpendicular_bounce: Option<[f32; 31]>,
+}
+
 #[derive(Clone, Debug)]
 struct CatalogWeapon {
     pub namespace: crate::AssetNamespace,
@@ -629,6 +647,7 @@ struct CatalogWeapon {
 
     pub(crate) combat_slots: CombatFxSlots,
     pub facts: WeaponBodyFacts,
+    pub game_bytes: Option<Arc<GameWeaponBytes>>,
 }
 
 #[derive(Clone, Debug, Default)]
@@ -1338,6 +1357,7 @@ struct WeaponRow {
     namespace: crate::AssetNamespace,
 
     facts: WeaponBodyFacts,
+    game_bytes: Option<Arc<GameWeaponBytes>>,
     semantics: Option<crate::WeaponSemanticPolicy>,
     combat: Option<combat::WeaponCombatProjection>,
     fpv: Option<WeaponFpvFacts>,
@@ -1476,6 +1496,7 @@ impl Default for WeaponRow {
             alternate_index: 0,
             namespace: crate::AssetNamespace::Iw4,
             facts: WeaponBodyFacts::default(),
+            game_bytes: None,
             semantics: None,
             combat: None,
             fpv: None,
@@ -1571,6 +1592,8 @@ pub struct WeaponRegistry {
     world_catalog_identity: u64,
     fpv_catalog_identity: u64,
     family_tables: Arc<[(crate::AssetNamespace, crate::CapturedStringTable)]>,
+    shared_ranks: std::sync::OnceLock<Result<crate::CapturedStringTable, &'static str>>,
+    shared_icons: std::sync::OnceLock<Result<crate::CapturedStringTable, &'static str>>,
 
     iw5_attachments: HashMap<String, Iw5ScopeRow>,
 

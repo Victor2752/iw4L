@@ -5,7 +5,7 @@ use super::iw4::atof;
 use super::shared::{sight, weapon_facts};
 use crate::frame::FrameWorld;
 use crate::script::Namespace::{Function, Method};
-use crate::script::{Arc, BTreeMap, NativeRegistry, Runtime, StringTable, Value};
+use crate::script::{Arc, BTreeMap, NativeRegistry, RoundScript, StringTable, Value};
 use crate::world::ClientId;
 use bevy_ecs::prelude::World;
 use weapon_iw4::WeaponState;
@@ -70,7 +70,7 @@ const STATS_CLASSES: usize = 11;
 const STATS_SLOT: usize = 13;
 
 fn t5(world: &mut World) -> &mut T5State {
-    &mut world.resource_mut::<Runtime>().into_inner().t5
+    &mut world.resource_mut::<RoundScript>().into_inner().t5
 }
 
 fn now_ms(world: &World) -> i64 {
@@ -186,14 +186,14 @@ fn timeout(world: &World, args: &[Value], index: usize) -> Result<Option<i64>, S
 fn settle_influencers(world: &mut World) {
     let now = now_ms(world);
     let owners: Vec<(i32, u64)> = world
-        .resource::<Runtime>()
+        .resource::<RoundScript>()
         .t5
         .influencers
         .iter()
         .filter_map(|(id, i)| i.owner.map(|o| (*id, o)))
         .collect();
     for (id, owner) in owners {
-        let live = world.resource::<Runtime>().live(&owner);
+        let live = world.resource::<RoundScript>().live(&owner);
         let origin = live.then(|| origin_of(world, &Value::Object(owner)));
         let state = t5(world);
         match origin {
@@ -230,7 +230,7 @@ fn sorted_spawn_points(
         let origin = origin_of(world, &point);
         let yaw = vector_field(world, &point, "angles")[1].to_radians();
         let forward = [yaw.cos(), yaw.sin(), 0.0];
-        let state = &world.resource::<Runtime>().t5;
+        let state = &world.resource::<RoundScript>().t5;
         let mut score: f32 = state
             .influencers
             .values()
@@ -261,7 +261,7 @@ fn sorted_spawn_points(
 
 fn players_on(world: &mut World, team: &str, except: Option<u32>) -> Vec<u32> {
     let clients: Vec<(u32, u64)> = world
-        .resource::<Runtime>()
+        .resource::<RoundScript>()
         .players
         .iter()
         .filter(|(c, slot)| &*slot.sessionstate == "playing" && Some(**c) != except)
@@ -293,7 +293,7 @@ fn eye(world: &mut World, client: u32) -> Option<[f32; 3]> {
 fn do_damage(world: &mut World, receiver: &Value, args: &[Value]) -> Result<Value, String> {
     let amount = float(args, 0)? as i32;
     let origin = vector(args, 1)?;
-    let runtime = world.resource::<Runtime>();
+    let runtime = world.resource::<RoundScript>();
     let target = match runtime.player_client_of(receiver) {
         Some(client) => crate::script::HitTarget::Player(ClientId(client)),
         None => match runtime.presence_of(receiver) {
@@ -327,7 +327,7 @@ fn do_damage(world: &mut World, receiver: &Value, args: &[Value]) -> Result<Valu
             _ => 0,
         };
         world
-            .resource_mut::<Runtime>()
+            .resource_mut::<RoundScript>()
             .hits
             .push(crate::script::ScriptHit {
                 piece: None,
@@ -365,7 +365,7 @@ fn do_damage(world: &mut World, receiver: &Value, args: &[Value]) -> Result<Valu
         0
     };
     world
-        .resource_mut::<Runtime>()
+        .resource_mut::<RoundScript>()
         .hits
         .push(crate::script::ScriptHit {
             piece: None,
@@ -387,6 +387,19 @@ fn player_id(world: &World, receiver: &Value) -> Result<u32, String> {
     super::player::player(world, receiver)
 }
 
+/// What the player's weapon is doing by the game's own weapon rules, when
+/// the match runs them; their states are not the simulation's.
+fn game_weapon_activity(
+    world: &mut World,
+    receiver: &Value,
+) -> Result<Option<game_api::movement::WeaponActivity>, String> {
+    let id = ClientId(player_id(world, receiver)?);
+    Ok(crate::game_move::weapon_activity(
+        &FrameWorld::from_world(world),
+        id,
+    ))
+}
+
 fn weapon_state(world: &mut World, receiver: &Value) -> Result<Option<WeaponState>, String> {
     let id = ClientId(player_id(world, receiver)?);
     Ok(FrameWorld::from_world(world)
@@ -398,7 +411,7 @@ fn stats_row(
     world: &World,
     reference: &str,
 ) -> Option<(Arc<BTreeMap<String, StringTable>>, usize)> {
-    let tables = world.resource::<Runtime>().tables.clone();
+    let tables = world.resource::<RoundScript>().tables.clone();
     let table = tables.get(&super::super::entities::table_key(STATS_TABLE))?;
     let row = (0..table.rows).find(|&row| {
         table
@@ -562,13 +575,13 @@ fn visibility(
 ) -> Result<Value, String> {
     let id = super::engine::entity_id(world, receiver)?;
     let clients: Vec<u32> = world
-        .resource::<Runtime>()
+        .resource::<RoundScript>()
         .players
         .keys()
         .copied()
         .collect();
     let everyone = client_bits(world, clients);
-    let runtime = world.resource_mut::<Runtime>().into_inner();
+    let runtime = world.resource_mut::<RoundScript>().into_inner();
     change(runtime.entities.get_mut(&id).unwrap(), everyone);
     Ok(Value::Undefined)
 }
@@ -604,14 +617,14 @@ fn register_script(registry: &mut NativeRegistry) {
     });
     registry.register(Function, "isai", |world, _, args| {
         let actor = world
-            .resource::<Runtime>()
+            .resource::<RoundScript>()
             .entity(arg(args, 0)?)
             .is_some_and(|(_, e)| e.kind == EntityKind::Actor);
         Ok(Value::Int(actor.into()))
     });
     registry.register(Function, "isvehicle", |world, _, args| {
         let vehicle = world
-            .resource::<Runtime>()
+            .resource::<RoundScript>()
             .entity(arg(args, 0)?)
             .is_some_and(|(_, e)| e.kind == EntityKind::Vehicle);
         Ok(Value::Int(vehicle.into()))
@@ -619,7 +632,7 @@ fn register_script(registry: &mut NativeRegistry) {
     registry.register(Function, "tablelookupcolumnforrow", |world, _, args| {
         let name = string(args, 0)?;
         let (row, column) = (int(args, 1)?, int(args, 2)?);
-        let tables = world.resource::<Runtime>().tables.clone();
+        let tables = world.resource::<RoundScript>().tables.clone();
         let cell = tables
             .get(&super::super::entities::table_key(&name))
             .filter(|_| row >= 0 && column >= 0)
@@ -630,7 +643,7 @@ fn register_script(registry: &mut NativeRegistry) {
     registry.register(Function, "getdefaultclassslot", |world, _, args| {
         let class = string(args, 0)?.to_ascii_lowercase();
         let slot = string(args, 1)?;
-        let tables = world.resource::<Runtime>().tables.clone();
+        let tables = world.resource::<RoundScript>().tables.clone();
         let Some(table) = tables.get(&super::super::entities::table_key(STATS_TABLE)) else {
             return Err(format!("{STATS_TABLE} is not loaded"));
         };
@@ -662,7 +675,7 @@ fn register_script(registry: &mut NativeRegistry) {
     });
     registry.register(Function, "getreffromitemindex", |world, _, args| {
         let index = int(args, 0)?.to_string();
-        let tables = world.resource::<Runtime>().tables.clone();
+        let tables = world.resource::<RoundScript>().tables.clone();
         let reference = tables
             .get(&super::super::entities::table_key(STATS_TABLE))
             .and_then(|t| {
@@ -675,7 +688,7 @@ fn register_script(registry: &mut NativeRegistry) {
     });
     registry.register(Function, "getitemgroupfromitemindex", |world, _, args| {
         let index = int(args, 0)?.to_string();
-        let tables = world.resource::<Runtime>().tables.clone();
+        let tables = world.resource::<RoundScript>().tables.clone();
         let group = tables
             .get(&super::super::entities::table_key(STATS_TABLE))
             .and_then(|t| {
@@ -688,7 +701,7 @@ fn register_script(registry: &mut NativeRegistry) {
     });
     registry.register(Function, "getattachmentindex", |world, _, args| {
         let name = string(args, 0)?;
-        let tables = world.resource::<Runtime>().tables.clone();
+        let tables = world.resource::<RoundScript>().tables.clone();
         let index = tables
             .get(&super::super::entities::table_key("mp/attachmenttable.csv"))
             .and_then(|t| {
@@ -707,7 +720,7 @@ fn register_script(registry: &mut NativeRegistry) {
         if slot <= 0 {
             return Ok(Value::string("none"));
         }
-        let tables = world.resource::<Runtime>().tables.clone();
+        let tables = world.resource::<RoundScript>().tables.clone();
         let attachment = tables
             .get(&super::super::entities::table_key(STATS_TABLE))
             .and_then(|t| {
@@ -863,7 +876,7 @@ fn register_script(registry: &mut NativeRegistry) {
     });
     registry.register(Function, "getdroppedweapons", |world, _, _| {
         let items: Vec<Value> = world
-            .resource::<Runtime>()
+            .resource::<RoundScript>()
             .entities
             .iter()
             .filter(|(_, e)| matches!(e.kind, EntityKind::Item(_)))
@@ -975,7 +988,7 @@ fn register_spawning(registry: &mut NativeRegistry) {
         let team = string(args, 2)?;
         let except = args
             .get(3)
-            .and_then(|p| world.resource::<Runtime>().player_client_of(p));
+            .and_then(|p| world.resource::<RoundScript>().player_client_of(p));
         let target = [origin[0], origin[1], origin[2] + 60.0];
         for client in players_on(world, &team, except) {
             if let Some(eye) = eye(world, client)
@@ -1017,12 +1030,18 @@ fn register_player(registry: &mut NativeRegistry) {
         Ok(Value::Int((a == b).into()))
     });
     registry.register(Method, "isfiring", |world, receiver, _| {
+        if let Some(activity) = game_weapon_activity(world, receiver)? {
+            return Ok(Value::Int(activity.firing.into()));
+        }
         let state = weapon_state(world, receiver)?;
         Ok(Value::Int(
             matches!(state, Some(WeaponState::Firing)).into(),
         ))
     });
     registry.register(Method, "ismeleeing", |world, receiver, _| {
+        if let Some(activity) = game_weapon_activity(world, receiver)? {
+            return Ok(Value::Int(activity.meleeing.into()));
+        }
         let state = weapon_state(world, receiver)?;
         Ok(Value::Int(
             matches!(
@@ -1033,6 +1052,9 @@ fn register_player(registry: &mut NativeRegistry) {
         ))
     });
     registry.register(Method, "isthrowinggrenade", |world, receiver, _| {
+        if let Some(activity) = game_weapon_activity(world, receiver)? {
+            return Ok(Value::Int(activity.throwing_grenade.into()));
+        }
         let state = weapon_state(world, receiver)?;
         Ok(Value::Int(
             matches!(
@@ -1050,6 +1072,9 @@ fn register_player(registry: &mut NativeRegistry) {
         ))
     });
     registry.register(Method, "isswitchingweapons", |world, receiver, _| {
+        if let Some(activity) = game_weapon_activity(world, receiver)? {
+            return Ok(Value::Int(activity.switching().into()));
+        }
         let id = ClientId(player_id(world, receiver)?);
         let state = FrameWorld::from_world(world)
             .player(id)
@@ -1069,7 +1094,7 @@ fn register_player(registry: &mut NativeRegistry) {
     registry.register(Method, "getperks", |world, receiver, _| {
         let client = player_id(world, receiver)?;
         let perks: Vec<Value> = world
-            .resource::<Runtime>()
+            .resource::<RoundScript>()
             .players
             .get(&client)
             .map(|slot| {
@@ -1249,7 +1274,7 @@ fn register_entity(registry: &mut NativeRegistry) {
         })
     });
     registry.register(Method, "islinkedto", |world, receiver, args| {
-        let runtime = world.resource::<Runtime>();
+        let runtime = world.resource::<RoundScript>();
         let parent = object_of(arg(args, 0)?);
         let linked = runtime
             .entity(receiver)
@@ -1262,7 +1287,7 @@ fn register_entity(registry: &mut NativeRegistry) {
         let number = FrameWorld::from_world(world)
             .player(id)
             .map_or(-1, |ps| ps.ground_entity_num);
-        let runtime = world.resource::<Runtime>();
+        let runtime = world.resource::<RoundScript>();
         Ok(runtime
             .entities
             .iter()
@@ -1274,7 +1299,7 @@ fn register_entity(registry: &mut NativeRegistry) {
             registry.register(Method, $name, |world, receiver, args| {
                 let id = super::engine::entity_id(world, receiver)?;
                 let value = arg(args, 0)?.clone();
-                world.resource_mut::<Runtime>().set_object_field(id, $field, value);
+                world.resource_mut::<RoundScript>().set_object_field(id, $field, value);
                 Ok(Value::Undefined)
             });
         )*};
@@ -1288,7 +1313,7 @@ fn register_entity(registry: &mut NativeRegistry) {
     registry.register(Method, "clearentityowner", |world, receiver, _| {
         let id = super::engine::entity_id(world, receiver)?;
         world
-            .resource_mut::<Runtime>()
+            .resource_mut::<RoundScript>()
             .set_object_field(id, "owner", Value::Undefined);
         Ok(Value::Undefined)
     });
@@ -1350,7 +1375,7 @@ fn register_platform(registry: &mut NativeRegistry) {
     macro_rules! presented {
         ($($name:literal),* $(,)?) => {$(
             registry.register(Function, $name, |world, _, args| {
-                world.resource_mut::<Runtime>().presented.insert($name, args.to_vec());
+                world.resource_mut::<RoundScript>().presented.insert($name, args.to_vec());
                 Ok(Value::Undefined)
             });
         )*};
@@ -1384,7 +1409,7 @@ fn register_platform(registry: &mut NativeRegistry) {
 
 fn presented_team_flag(world: &World, key: &str, team: &str) -> Value {
     match world
-        .resource::<Runtime>()
+        .resource::<RoundScript>()
         .presented
         .get(key)
         .map(Vec::as_slice)

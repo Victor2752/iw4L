@@ -12,6 +12,8 @@ mod damage;
 mod entity_run;
 mod equipment;
 mod frame;
+mod game_fire;
+mod game_move;
 mod gentity;
 pub mod hudelem;
 pub mod identities;
@@ -26,6 +28,8 @@ mod missile;
 mod missile_guidance;
 pub use missile_guidance::{MissileGuide, MissileTarget};
 mod penetration;
+mod progression;
+pub use progression::LocalPlayerData;
 mod persistent_data;
 mod persistent_defaults;
 pub use persistent_data::{
