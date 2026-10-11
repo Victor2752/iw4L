@@ -948,14 +948,16 @@ pub fn build_t5_static_model_instances(
                     .map_err(|_| ModelMeshError::MissingStaticModelInstances)?;
             }
         }
+        // `smodelDrawInsts` holds one entry per static model. A model the
+        // world defines inline (its first use in the zone) was loaded and
+        // recorded at this very field, so the field is its slot; a null
+        // model keeps its entry and resolves to nothing.
         let model = match stream
             .ptr_at(inst, MODEL_OFF)
             .map_err(|_| ModelMeshError::MissingStaticModelInstances)?
         {
             fastfile_t5::ZonePtr::Offset(p) => p,
-            _ => {
-                continue;
-            }
+            _ => inst.at(MODEL_OFF),
         };
         out.push(StaticModelInstance {
             model_slot: Ptr {
