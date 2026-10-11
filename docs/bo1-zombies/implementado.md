@@ -5,8 +5,25 @@ Cada item traz a regra do BO1 de origem, os arquivos e o commit na `kino`.
 ## Partida jogável com o MW2 emprestado — `e7324bb`
 
 `session/src/games.rs::T5OnIw4Rules` (ver [arquitetura](arquitetura.md#o-empréstimo-do-mw2-provisório)).
-Liga movimento, armas, last stand e HUD de código do MW2 para o BO1 e usa
-`onlinegame 1` do MW2, para o game over solo sair por `ExitLevel`.
+Emprestava movimento, armas, last stand e HUD de código do MW2 para o BO1,
+e usa `onlinegame 1` do MW2 para o game over solo sair por `ExitLevel`.
+Desde o merge do seba (`9a2eee2`), movimento e armas são do BO1. Só o last
+stand, o HUD de código, o layout de menu e o `onlinegame` continuam
+emprestados.
+
+## Merge do fork do seba — `9a2eee2`, `88fdedd`
+
+Movimento, armas, perks, tiro, melee e explosões do BO1 (`movement_t5`,
+`game_t5/src/fire.rs`…), mais o upstream (Bevy 0.20, escopos de partida).
+As decisões, os bugs revelados e como repetir estão em
+[fork-seba.md](fork-seba.md). No merge:
+
+- `PlayerMovement::weapon_activity` (`game_api`, `game_t5/src/movement.rs`,
+  `sim/src/game_move.rs`): os builtins `isFiring`, `isMeleeing`,
+  `isThrowingGrenade`, `isSwitchingWeapons` e os notifies de troca de arma
+  leem o estado das armas do BO1. Antes, a compra de perk e a garrafa
+  travavam.
+- O `add_scene_brush_surfaces` passou para o `frame::InMatch`.
 
 ## Dano por região (headshot) — `a5a0d4c`
 
@@ -18,8 +35,9 @@ Liga movimento, armas, last stand e HUD de código do MW2 para o BO1 e usa
 - Aplicação: `sim/src/script/host/actors.rs::location_scaled`. Só tiros em
   osso; explosão e faca não têm região.
 
-> O seba portou o tiro do BO1 com as tabelas de hit location e penetração
-> (`game_t5/src/fire.rs`). No merge fica a versão dele ([fork-seba](fork-seba.md)).
+> Substituído no merge (`9a2eee2`): o tiro do BO1 do seba
+> (`game_t5/src/fire.rs`) já multiplica pela região. A nossa leitura da
+> tabela saiu. O `location_scaled` só vale para golpe sem região do jogo.
 
 ## Fontes e texto de script — `3ffaefc`
 
@@ -95,9 +113,10 @@ palco. A luz do projetor (`clientnotify("sip")`) depende de CSC.
 - **Quick Revive solo**: funciona pelos scripts; foi testado comprando, caindo
   e levantando sozinho.
 
-> O seba portou a máquina de armas do BO1 com esses perks
-> (`movement_t5`). No merge, o Double Tap no `weapon_iw4` e o
-> `ModeRules::double_tap_rate` saem ([fork-seba](fork-seba.md)).
+> Substituído no merge (`9a2eee2`): o Double Tap e o Speed Cola agora vêm
+> da máquina de armas do BO1 do seba (`movement_t5`). O nosso Double Tap no
+> `weapon_iw4` e o `ModeRules::double_tap_rate` saíram. O `SetMaxHealth` e o
+> Quick Revive solo continuam valendo (testados de novo após o merge).
 
 ## Registro da fronteira — `23ab175`
 

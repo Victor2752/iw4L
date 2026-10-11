@@ -52,7 +52,7 @@ para ler. Para economizar:
 
 | o quê | comando |
 |---|---|
-| Quick Revive (500 no solo, sem energia) | `move 531 -1205 80 270 10` |
+| Quick Revive (500 no solo, sem energia), de frente | `move 531 -1320 80 90 5` e `hold +activate` |
 | porta do foyer (750), lado do corredor | `move 548 -641 322 0 5` e `hold +activate` |
 | a mesma porta vista da sala da caixa | `move 700 -641 322 180 5` |
 | alavanca da energia (bastidores) | `move -488 1200 40 90 0` e `hold +activate` |
@@ -64,11 +64,30 @@ Depois da energia: a cortina leva ~3 s e a tela desce em 6 s.
 
 ## Conferir o MW2
 
-Toda mudança deve deixar o MW2 igual:
+Toda mudança deve deixar o MW2 igual. Desde o upstream, a progressão local
+trava as classes do perfil (`spawn N` responde "Unlocks at level …"). Por
+isso o teste escolhe a classe padrão destacada pelo próprio menu e usa uma
+pasta de artefatos à parte, para não mexer no seu perfil:
 
 ```bash
-IW4L_SOUND=off ./target/play/iw4l map mp_rust --cmds 'wait world; spawn 0; force_match_start; wait 1s; hold +attack; wait 2s; release +attack; screenshot mw; finish_run'
+IW4L_ARTIFACTS_DIR=/tmp/iw4l-mw IW4L_SOUND=off ./target/play/iw4l map mp_rust --cmds 'wait world; wait 2s; menukey enter; wait 2s; force_match_start; wait 1s; hold +attack; wait 2s; release +attack; screenshot mw; finish_run'
 ```
+
+## Depois de um merge
+
+Uma rodada cobre o essencial do zombies. O `god` vem depois do jogador
+estar vivo (`wait 3s`); antes disso ele responde "not Alive".
+
+```bash
+IW4L_SOUND=off IW4L_LOG_LEVEL=debug IW4L_GAMETYPE=zom ./target/play/iw4l map t5:zombie_theater --cmds "wait world; spawn 0; wait 3s; god; score 5000; hold +forward; wait 1s; release +forward; showpos; hold +attack; wait 1s; release +attack; move 548 -641 322 0 5; hold +activate; wait 300ms; release +activate; move 531 -1320 80 90 5; wait 500ms; hold +activate; wait 1s; release +activate; wait 6s; god; wait 500ms; damage 300; wait 14s; togglemenu; wait 1s; screenshot pos_merge; finish_run"
+```
+
+No log (`grep -E "score [0-9]+|revive_up|game_over"`), espere:
+
+- 5000 → 4250 (porta) → 3750 (Quick Revive);
+- o down e o `revive_up`, sem `mus_zombie_game_over`.
+
+Na screenshot, o menu de pausa do BO1.
 
 ## Dump dos scripts GSC
 

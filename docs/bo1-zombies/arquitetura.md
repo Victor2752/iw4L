@@ -34,17 +34,23 @@ O fork do seba desligou tudo que o BO1 pegava do MW2, porque as regras do BO1
 eram desconhecidas. Para a Kino ficar jogável, `session/src/games.rs` tem o
 wrapper `T5OnIw4Rules`. Ele responde pelo BO1, mas pega do MW2:
 
-- movimento (`movement_iw4`), máquina de armas (`weapon_iw4`), last stand;
+- o last stand (`every_player_downs`, com o pm type e a altura de visão do MW2);
 - HUD de código (`hud.code_hud`) e layout de menu (`game_iw4::MenuLayout`);
 - `config_defaults` (`onlinegame 1`, para o game over solo sair por `ExitLevel`).
+
+O `cargo xtask boundary` exige que o ledger `t5.md` cite esse tipo (está na
+entrada `t5.match.last_stand`).
 
 Cada item desse wrapper deve virar regra do BO1, lida da
 [decompilação](decompilacao.md). Quando virar, a resposta sai do wrapper e
 passa a vir de `game_t5`.
 
-O seba já trocou movimento e armas pelas regras do BO1 (`movement_t5`,
-`MovementRules::Game`, `WeaponRules::Game`). Depois do merge
-([fork-seba](fork-seba.md)), esses dois saem do wrapper.
+Movimento e armas já são do BO1 (`movement_t5`, `MovementRules::Game`,
+`WeaponRules::Game`), vindos do seba no merge `9a2eee2` ([fork-seba](fork-seba.md)).
+O estado que só o BO1 conhece (estado da arma, perks, postura) vive nos
+bytes do jogo no playerstate. O resto do motor pergunta por ele pelo trait
+`game_api::PlayerMovement` (`has_perk`, `weapon_activity`…), nunca pelos
+campos do MW2.
 
 ## Regra de ouro: regra do jogo certo
 
@@ -64,9 +70,11 @@ partida, e não em dvars de script (o cliente não tem a VM de script).
 2. **Scripts**: os GSC da Kino rodam na VM do IW4L (`crates/gsc`, `sim/src/script`).
    Os builtins do BO1 ficam em `sim/src/script/host/natives/t5*.rs`, atores em
    `host/actors.rs`, a IA em `host/actor_*.rs`.
-3. **Simulação** (`crates/sim`): `step.rs` roda o pmove e a máquina de armas do
-   MW2 (liberados por `ModeRules.movement/weapons`); `combat.rs` monta o
-   `WeaponCmd`; `script_player.rs` faz perks, vida e last stand.
+3. **Simulação** (`crates/sim`): com `MovementRules::Game`, `game_move.rs`
+   roda o movimento e as armas do BO1 (`movement_t5`), e os tiros vão para
+   `game_fire.rs` → `game_t5/src/fire.rs`. Com `Simulation` (MW2), `step.rs`
+   roda o pmove e a máquina de armas do MW2. `script_player.rs` faz vida e
+   last stand.
 4. **Cliente**: `hud/src/t5_hud.rs` desenha os menus de HUD do BO1;
    `hud_elems.rs` desenha os textos de script; `render_frontend` desenha o mundo.
    - Modelos estáticos do mapa: `asset_world/src/model_mesh.rs::build_t5_static_model_instances`

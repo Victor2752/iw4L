@@ -15,7 +15,7 @@ fork mudou e como ele foi pensado.
 | [`implementado.md`](implementado.md) | cada coisa que o fork já fez: a regra do BO1, os arquivos e o commit |
 | [`menus.md`](menus.md) | como o motor de menus do BO1 funciona e o estado do menu de pausa |
 | [`brushes.md`](brushes.md) | portas, tábuas, entulho, tela e cabo: do mover no servidor até os vértices na GPU |
-| [`fork-seba.md`](fork-seba.md) | o que o fork do seba fez desde a `kino`, o que só nós temos e como integrar |
+| [`fork-seba.md`](fork-seba.md) | o que veio do fork do seba, o que foi decidido nos merges e como integrar de novo |
 | [`testes.md`](testes.md) | build, rodar a Kino por script, logs, screenshots, dumps e as checagens antes de commitar |
 | [`pendencias.md`](pendencias.md) | o que falta, em ordem de prioridade |
 
@@ -33,9 +33,10 @@ Dá para jogar a Kino solo:
 - ESC abre o menu de pausa e as opções do próprio BO1 (com FPS e
   sensibilidade numérica do IW4L), e o menu pausa o jogo no solo.
 
-Faltam o visual do BO1 (vision set, efeitos de client script), o last stand
-do BO1, a música e parte dos sons. O movimento e as armas do BO1 já existem
-no fork do seba e devem vir num merge ([fork-seba](fork-seba.md)).
+O movimento, as armas, o tiro e os perks são as regras do próprio BO1,
+vindas do fork do seba ([fork-seba](fork-seba.md)). Faltam o visual do BO1
+(vision set, efeitos de client script), o last stand do BO1 (ainda
+emprestado do MW2), a música e parte dos sons.
 
 ## Onde mais olhar
 
