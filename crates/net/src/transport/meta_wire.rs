@@ -2259,6 +2259,8 @@ fn encode_entity_state(out: &mut WireWriter, es: &entity_iw4::EntityState) {
         out.put_f32(v);
     }
     out.put_i32(es.index);
+    // A brush model mover's `solid` tells the client to draw it as one.
+    out.put_u32(es.solid);
     out.put_i32(es.launch_time());
     out.put_i32(es.client_num);
 
@@ -2301,6 +2303,7 @@ fn decode_entity_state(input: &mut WireReader<'_>) -> Result<entity_iw4::EntityS
     es.apos_tr_delta = [input.get_f32()?, input.get_f32()?, input.get_f32()?];
     es.apos_tr_base = [input.get_f32()?, input.get_f32()?, input.get_f32()?];
     es.index = input.get_i32()?;
+    es.solid = input.get_u32()?;
     es.set_launch_time(input.get_i32()?);
     es.client_num = input.get_i32()?;
     es.legs_anim = input.get_i32()?;
