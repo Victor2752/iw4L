@@ -5,18 +5,14 @@ e fecha a entrada no `docs/fidelity/t5.md`. Antes de começar um item, leia a
 função do BO1 na [decompilação](decompilacao.md#fluxo-de-trabalho). O teste
 vem depois, para confirmar.
 
-1. **Trazer o trabalho do seba** ([fork-seba.md](fork-seba.md)). Ele já
-   portou o movimento, a máquina de armas, os perks, o tiro, o melee e as
-   explosões do BO1. São os itens que vinham a seguir nesta lista. Fazer o
-   merge do `seba/main` na `kino` e ficar com o dele nessas áreas.
-2. **Modelos de outra zona** (58 dos 3326 modelos estáticos da Kino: ursinhos,
+1. **Modelos de outra zona** (58 dos 3326 modelos estáticos da Kino: ursinhos,
    porta do lobby). Resolver a referência pelo nome nas zonas do zombies,
    como o DB do BO1 faz, e dar colisão a eles.
-3. **Teleporte**: testar o link (pad → mainframe), a troca dos cabos
+2. **Teleporte**: testar o link (pad → mainframe), a troca dos cabos
    (`link_cable_off`/`_on`), a viagem e a volta. Sem CSC, os efeitos dele não
-   aparecem (item 6). Verificar se `exploder()` (GSC + `createfx`) toca algo;
+   aparecem (item 5). Verificar se `exploder()` (GSC + `createfx`) toca algo;
    o parser `createfx` do IW4L não lê exploders.
-4. **Vision set** (imagem "apagada"). `assets/src/lane/t5.rs` descarta as
+3. **Vision set** (imagem "apagada"). `assets/src/lane/t5.rs` descarta as
    `.vision`. O seba espera um trace de D3D9, mas a decompilação já tem a
    cadeia em `gfx_d3d/rb_postfx.cpp::RB_BloomLDR`:
    - bloom: `bloom_downsample_ldr` → `resampleFinal` → `bloom_downsample_convolution`
@@ -27,19 +23,33 @@ vem depois, para confirmar.
 
    O IW4L já traduz os shaders nativos de pós do T5; falta montar a cadeia e
    as constantes.
-5. **Last stand do BO1** (`game_sp/g_sp_client.cpp`). Hoje usa o pm type e a
-   altura de visão do MW2. O seba também não tem (no dele o jogador morre).
-6. **Client scripts (CSC)**: nenhum roda. Isso tira:
+4. **Last stand do BO1** (`game_sp/g_sp_client.cpp`). Hoje usa o pm type e a
+   altura de visão do MW2 (o `T5OnIw4Rules` empresta), por cima do movimento
+   do BO1. O seba também não tem (no dele o jogador morre).
+5. **Client scripts (CSC)**: nenhum roda. Isso tira:
    - o brilho dos olhos dos zumbis;
    - os efeitos de tábuas e risers;
    - a música (`clientsyssetstate`);
    - as luzes da energia;
    - os efeitos do teleporte;
    - a luz do projetor depois que a tela desce (`clientnotify("sip")`).
-7. **Restos dos menus** ([menus.md](menus.md)):
+6. **Restos dos menus** ([menus.md](menus.md)):
    - a tecla `pause` (`CL_Pause_f`);
    - as animações de item (`ui_animate`) e o blur;
    - a retícula sobre o menu;
    - o layout de texto do BO1 (`t5.hud.menu_layout`).
-8. **Sons**: `uin_transition_zombie_theater` (tela de loading) e os passos
-   `fly_step_*`/`fly_gear_*`. Os passos devem vir com o movimento do seba.
+7. **Sons**: `uin_transition_zombie_theater` (tela de loading) e os passos
+   `fly_step_*`/`fly_gear_*`. Os passos dependem dos eventos de movimento
+   (`t5.movement.events`, ainda não portados no movimento do seba).
+8. **O que o movimento e as armas do BO1 ainda não têm** (ledger):
+   - mantle (`t5.movement.mantle`);
+   - eventos de passos e pouso (`t5.movement.events`);
+   - água (`t5.movement.water`);
+   - o ângulo da arma que o cliente manda a cada comando
+     (`t5.weapons.gun_angles`).
+
+   Isso entra pelo fork do seba ou por nós, sempre pela decompilação.
+9. **Outros builtins que leem o estado de arma do MW2**: o `isReloading`,
+   o `isSwitchingWeapon` e o `isChangingWeapon` genéricos
+   (`natives/player.rs`). Os scripts da Kino não usam; ver
+   `PlayerMovement::weapon_activity` se algum mapa precisar.
